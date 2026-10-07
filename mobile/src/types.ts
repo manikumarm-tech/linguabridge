@@ -7,6 +7,8 @@ export interface User {
   showEnglish: boolean; displayMode: DisplayMode; translationMode: TranslationMode; isBot: boolean;
   /** only on my own profile: set once Google is linked */
   email?: string | null; avatarUrl?: string | null;
+  /** only for people I chat with */
+  online?: boolean; lastSeenAt?: string | null;
 }
 
 export interface LangText { native?: string; romanized?: string }
@@ -24,8 +26,9 @@ export interface Message {
 }
 
 export interface ConversationItem {
-  id: string; peer: { id: string; handle: string; name: string; language: string };
-  lastMessage: string | null; lastAt: string | null; detectedLabel: string | null;
+  id: string;
+  peer: { id: string; handle: string; name: string; language: string; avatarUrl: string | null; online: boolean; lastSeenAt: string | null };
+  lastMessage: string | null; lastAt: string | null; detectedLabel: string | null; unread: number;
 }
 
 export interface Preview {

@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { q } from '../db.js';
 import { requireAuth, sign } from '../auth.js';
 import { verifyGoogleIdToken } from '../google.js';
-import { emit } from '../hub.js';
+import { emit, isOnline } from '../hub.js';
 import { LANGUAGES, detectionLabel, getLanguage } from '../languages.js';
 import { Translator, primaryText } from '../pipeline/translate.js';
 import type { TranslateRequest, TranslationResult } from '../types.js';
@@ -14,7 +14,7 @@ import { config } from '../config.js';
 interface UserRow {
   id: string; handle: string; name: string; language: string; output_format: 'native' | 'romanized' | 'both';
   show_english: boolean; display_mode: string; translation_mode: 'natural' | 'literal' | 'casual'; is_bot: boolean;
-  google_sub: string | null; email: string | null; avatar_url: string | null;
+  google_sub: string | null; email: string | null; avatar_url: string | null; last_seen_at: string | null;
 }
 interface MsgRow {
   id: string; conversation_id: string; sender_id: string; original_text: string; kind: string;
@@ -31,10 +31,13 @@ const wrap = (fn: (req: Request, res: Response) => Promise<unknown>) => (req: Re
 const publicUser = (u: UserRow) => ({
   id: u.id, handle: u.handle, name: u.name, language: u.language, outputFormat: u.output_format,
   showEnglish: u.show_english, displayMode: u.display_mode, translationMode: u.translation_mode, isBot: u.is_bot,
+  avatarUrl: u.avatar_url,
 });
+/** Someone I chat with, including whether they're online right now (demo contacts always are). */
+const peerUser = (u: UserRow) => ({ ...publicUser(u), online: u.is_bot || isOnline(u.id), lastSeenAt: u.last_seen_at });
 
 /** What I see about myself (adds my Google email; never sent to other people). */
-const selfUser = (u: UserRow) => ({ ...publicUser(u), email: u.email, avatarUrl: u.avatar_url });
+const selfUser = (u: UserRow) => ({ ...publicUser(u), email: u.email });
 
 export function serializeMessage(m: MsgRow, recipientId: string | null) {
   const t = m.translation;
@@ -226,11 +229,14 @@ export function buildApi(translator: Translator, ocr?: { extractText(b64: string
   r.get('/conversations', requireAuth, wrap(async (_req, res) => {
     const me = res.locals.userId as string;
     const rows = await q<any>(
-      `SELECT c.id, u.id AS peer_id, u.handle, u.name, u.language,
-              m.original_text AS last_text, m.created_at AS last_at, m.translation AS last_translation, m.sender_id AS last_sender
+      `SELECT c.id, u.id AS peer_id, u.handle, u.name, u.language, u.avatar_url, u.last_seen_at, u.is_bot,
+              m.original_text AS last_text, m.created_at AS last_at, m.translation AS last_translation, m.sender_id AS last_sender,
+              (SELECT count(*) FROM messages mm WHERE mm.conversation_id=c.id AND mm.sender_id<>$1
+                 AND mm.created_at > GREATEST(COALESCE(cr.last_read_at,'-infinity'), COALESCE(cc.cleared_at,'-infinity')))::int AS unread
        FROM conversations c
        JOIN users u ON u.id = CASE WHEN c.user_a=$1 THEN c.user_b ELSE c.user_a END
        LEFT JOIN conversation_clears cc ON cc.conversation_id=c.id AND cc.user_id=$1
+       LEFT JOIN conversation_reads cr ON cr.conversation_id=c.id AND cr.user_id=$1
        LEFT JOIN LATERAL (SELECT * FROM messages WHERE conversation_id=c.id AND created_at > COALESCE(cc.cleared_at, '-infinity')
                           ORDER BY created_at DESC LIMIT 1) m ON true
        WHERE (c.user_a=$1 OR c.user_b=$1) AND (cc.cleared_at IS NULL OR m.id IS NOT NULL)
@@ -239,7 +245,11 @@ export function buildApi(translator: Translator, ocr?: { extractText(b64: string
       const t = x.last_translation as TranslationResult | null;
       return {
         id: x.id,
-        peer: { id: x.peer_id, handle: x.handle, name: x.name, language: x.language },
+        peer: {
+          id: x.peer_id, handle: x.handle, name: x.name, language: x.language, avatarUrl: x.avatar_url,
+          online: x.is_bot || isOnline(x.peer_id), lastSeenAt: x.last_seen_at,
+        },
+        unread: x.unread,
         lastMessage: t && x.last_sender !== me ? primaryText(t) : x.last_text,
         lastAt: x.last_at,
         detectedLabel: t ? detectionLabel(t.detectedLanguageCode, t.isRomanized) : null,
@@ -312,11 +322,24 @@ export function buildApi(translator: Translator, ocr?: { extractText(b64: string
        LEFT JOIN conversation_clears cc ON cc.conversation_id=m.conversation_id AND cc.user_id=$2
        WHERE m.conversation_id=$1 AND m.created_at > COALESCE(cc.cleared_at, '-infinity')
        ORDER BY m.created_at ASC LIMIT 500`, [conv.id, res.locals.userId]);
-    const peer = publicUser(await getUser(conv.peerId));
+    const peer = peerUser(await getUser(conv.peerId));
+    const [read] = await q<{ last_read_at: string }>(
+      'SELECT last_read_at FROM conversation_reads WHERE conversation_id=$1 AND user_id=$2', [conv.id, conv.peerId]);
     res.json({
+      peerLastReadAt: read?.last_read_at ?? null,
       peer,
       messages: rows.map((m) => serializeMessage(m, m.sender_id === res.locals.userId ? conv.peerId : res.locals.userId)),
     });
+  }));
+
+  /** I've seen everything in this chat up to now; tells the other person (read receipts). */
+  r.post('/conversations/:id/read', requireAuth, wrap(async (req, res) => {
+    const conv = await getConversation(req.params.id, res.locals.userId);
+    const [row] = await q<{ last_read_at: string }>(
+      `INSERT INTO conversation_reads (conversation_id, user_id) VALUES ($1,$2)
+       ON CONFLICT (conversation_id, user_id) DO UPDATE SET last_read_at=now() RETURNING last_read_at`, [conv.id, res.locals.userId]);
+    emit([conv.peerId], 'read', { conversationId: conv.id, userId: res.locals.userId, at: row.last_read_at });
+    res.json({ at: row.last_read_at });
   }));
 
   /** Delete chat for me only: hides everything so far; new messages bring it back. */
@@ -398,8 +421,14 @@ export function buildApi(translator: Translator, ocr?: { extractText(b64: string
   async function botReply(conv: { id: string }, bot: UserRow, human: UserRow) {
     const def = BOTS.find((b) => b.handle === bot.handle);
     if (!def) return;
-    await new Promise((r2) => setTimeout(r2, 1500));
     try {
+      await new Promise((r2) => setTimeout(r2, 600));
+      const [row] = await q<{ last_read_at: string }>(
+        `INSERT INTO conversation_reads (conversation_id, user_id) VALUES ($1,$2)
+         ON CONFLICT (conversation_id, user_id) DO UPDATE SET last_read_at=now() RETURNING last_read_at`, [conv.id, bot.id]);
+      emit([human.id], 'read', { conversationId: conv.id, userId: bot.id, at: row.last_read_at });
+      emit([human.id], 'typing', { conversationId: conv.id, userId: bot.id });
+      await new Promise((r2) => setTimeout(r2, 1500));
       const text = def.replies[Math.floor(Math.random() * def.replies.length)];
       await storeAndEmit(conv, bot, human, text, 'text');
     } catch (e) {

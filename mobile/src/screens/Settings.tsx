@@ -4,6 +4,7 @@ import { notify } from '../components/dialog';
 import { api, defaultBaseUrl, getBaseUrl } from '../api/client';
 import { DISPLAY_MODES, formatOptions, TRANSLATION_MODES } from '../components/formats';
 import { GoogleButton } from '../components/GoogleButton';
+import { notificationPermission, notificationsSupported, requestNotifications } from '../components/notify-web';
 import { LanguagePicker } from '../components/LanguagePicker';
 import { Option } from '../components/Option';
 import { langByCode } from '../languages';
@@ -15,6 +16,7 @@ export function Settings() {
   const t = useTheme();
   const { user, token, previewBeforeSend, setPreviewBeforeSend, updateSettings, signIn, signOut, setApiUrl } = useApp();
   const [url, setUrl] = useState(getBaseUrl());
+  const [notif, setNotif] = useState(notificationPermission());
   if (!user) return null;
   const lang = langByCode(user.language)!;
 
@@ -57,6 +59,17 @@ export function Settings() {
         onEndEditing={() => setApiUrl(url.trim() === defaultBaseUrl ? null : url.trim())}
         style={{ backgroundColor: t.card, color: t.text, borderRadius: radius.md, borderWidth: 1, borderColor: t.border, padding: 14, fontSize: 15 }} />
       <Text style={{ color: t.sub, fontSize: 12, marginTop: 6 }}>Restart the app after changing the server address.</Text>
+
+      {notificationsSupported() ? (
+        <>
+          <H>NOTIFICATIONS</H>
+          <Row
+            label={notif === 'denied' ? 'Blocked in browser settings' : 'Notify me about new messages'}
+            value={notif === 'granted'}
+            onChange={async (on) => { if (on && notif !== 'granted') setNotif(await requestNotifications()); }}
+          />
+        </>
+      ) : null}
 
       <H>ACCOUNT</H>
       {user.email ? (

@@ -14,9 +14,10 @@ interface Props {
   me: User;
   peer: User;
   onSent: (m: Message) => void;
+  onTyping?: () => void;
 }
 
-export function Composer({ conversationId, me, peer, onSent }: Props) {
+export function Composer({ conversationId, me, peer, onSent, onTyping }: Props) {
   const t = useTheme();
   const previewBeforeSend = useApp((s) => s.previewBeforeSend);
   const [text, setText] = useState('');
@@ -97,7 +98,7 @@ export function Composer({ conversationId, me, peer, onSent }: Props) {
         <IconBtn label="📷" onPress={pickImage} />
         <IconBtn label="📎" onPress={pickFile} />
         <TextInput
-          ref={inputRef} value={text} onChangeText={setText} multiline placeholder="Type a message..." placeholderTextColor={t.sub}
+          ref={inputRef} value={text} onChangeText={(v) => { setText(v); if (v.trim()) onTyping?.(); }} multiline placeholder="Type a message..." placeholderTextColor={t.sub}
           style={{ flex: 1, maxHeight: 120, minHeight: 40, backgroundColor: t.bg, color: t.text, borderRadius: radius.lg, paddingHorizontal: 14, paddingTop: 10, paddingBottom: 10, fontSize: 16 }}
         />
         <Pressable onPress={onSend} disabled={busy || !text.trim()} style={{ height: 40, paddingHorizontal: 16, borderRadius: 20, justifyContent: 'center', backgroundColor: t.primary, opacity: busy || !text.trim() ? 0.5 : 1 }}>

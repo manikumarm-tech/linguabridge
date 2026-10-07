@@ -10,6 +10,7 @@ import { BOTS } from './bots.js';
 import { config } from './config.js';
 import { q } from './db.js';
 import { register } from './hub.js';
+import { presenceChanged, typing } from './realtime.js';
 import { migrate } from './migrate.js';
 import { Translator } from './pipeline/translate.js';
 import { buildApi } from './routes/api.js';
@@ -50,7 +51,13 @@ async function main() {
     const token = new URL(req.url ?? '', 'http://x').searchParams.get('token') ?? '';
     const userId = verify(token);
     if (!userId) return ws.close(4401, 'unauthorized');
-    register(userId, ws);
+    register(userId, ws, (online) => { presenceChanged(userId, online).catch((e) => console.error('presence', e)); });
+    ws.on('message', (raw) => {
+      try {
+        const { event, data } = JSON.parse(String(raw));
+        if (event === 'typing') typing(userId, data?.conversationId).catch(() => {});
+      } catch { /* ignore junk */ }
+    });
     const ping = setInterval(() => ws.readyState === ws.OPEN && ws.ping(), 30_000);
     ws.on('close', () => clearInterval(ping));
   });

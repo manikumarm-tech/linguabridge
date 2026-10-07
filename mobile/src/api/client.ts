@@ -42,7 +42,8 @@ export const api = {
   myConnectCode: () => call<{ code: string; expiresAt: string }>('POST', '/connect/code'),
   redeemConnectCode: (code: string) => call<{ id: string; peer: User }>('POST', '/connect/redeem', { code }),
   openConversation: (peerHandle: string) => call<{ id: string; peer: User }>('POST', '/conversations', { peerHandle }),
-  messages: (id: string) => call<{ peer: User; messages: Message[] }>('GET', `/conversations/${id}/messages`),
+  messages: (id: string) => call<{ peer: User; messages: Message[]; peerLastReadAt: string | null }>('GET', `/conversations/${id}/messages`),
+  markRead: (id: string) => call<{ at: string }>('POST', `/conversations/${id}/read`),
   deleteConversation: (id: string) => call<{ ok: true }>('DELETE', `/conversations/${id}`),
   send: (id: string, text: string, kind: 'text' | 'voice' = 'text') =>
     call<Message>('POST', `/conversations/${id}/messages`, { text, kind }),
@@ -54,6 +55,12 @@ export const api = {
     call<{ text: string }>('POST', '/vision/extract-text', { imageBase64, mimeType }),
 };
 
+const openSockets = new Set<WebSocket>();
+/** Send a small event (e.g. typing) over any open connection. */
+export function sendSocket(event: string, data: unknown) {
+  for (const ws of openSockets) if (ws.readyState === WebSocket.OPEN) { ws.send(JSON.stringify({ event, data })); return; }
+}
+
 export function connectSocket(onEvent: (event: string, data: any) => void): () => void {
   let ws: WebSocket | null = null;
   let closed = false;
@@ -62,8 +69,9 @@ export function connectSocket(onEvent: (event: string, data: any) => void): () =
     if (closed || !token) return;
     ws = new WebSocket(`${baseUrl.replace(/^http/, 'ws')}/ws?token=${encodeURIComponent(token)}`);
     ws.onmessage = (e) => { try { const { event, data } = JSON.parse(String(e.data)); onEvent(event, data); } catch {} };
-    ws.onopen = () => { retry = 1000; };
-    ws.onclose = () => { if (!closed) setTimeout(open, (retry = Math.min(retry * 2, 15000))); };
+    const sock = ws;
+    ws.onopen = () => { retry = 1000; openSockets.add(sock); };
+    ws.onclose = () => { openSockets.delete(sock); if (!closed) setTimeout(open, (retry = Math.min(retry * 2, 15000))); };
   };
   open();
   return () => { closed = true; ws?.close(); };

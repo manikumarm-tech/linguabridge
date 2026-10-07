@@ -19,9 +19,11 @@ interface Props {
   me: User;
   displayMode: DisplayMode;
   onRetranslate: (m: Message) => Promise<void>;
+  /** my message has been seen by the other person (✓✓) */
+  seen?: boolean;
 }
 
-export function MessageBubble({ message: m, me, displayMode, onRetranslate }: Props) {
+export function MessageBubble({ message: m, me, displayMode, onRetranslate, seen }: Props) {
   const t = useTheme();
   const mine = m.senderId === me.id;
   const [showOriginal, setShowOriginal] = useState(false);
@@ -104,6 +106,10 @@ export function MessageBubble({ message: m, me, displayMode, onRetranslate }: Pr
             <Text style={{ color: t.warn, fontSize: 11, fontWeight: '600' }}>{tr!.status === 'failed' ? 'Translation failed' : tr!.status === 'degraded' ? 'Check translation' : `Low confidence ${Math.round(tr!.confidence * 100)}%`}</Text>
           </View>
         ) : null}
+        <Text style={{ color: t.sub, fontSize: 11, marginLeft: 'auto' }}>
+          {new Date(m.createdAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+          {mine ? <Text style={{ color: seen ? '#38BDF8' : t.sub, fontWeight: '700' }}>{seen ? '  ✓✓' : '  ✓'}</Text> : null}
+        </Text>
       </View>
 
       {tr && tr.status !== 'skipped' ? (
