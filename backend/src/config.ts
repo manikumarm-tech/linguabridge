@@ -5,7 +5,7 @@ export const config = {
   anthropicKey: process.env.ANTHROPIC_API_KEY ?? '',
   anthropicWorkspaceId: process.env.ANTHROPIC_WORKSPACE_ID ?? '',
   geminiKey: process.env.GEMINI_API_KEY ?? '',
-  geminiModel: process.env.GEMINI_MODEL ?? 'gemini-flash-latest',
+  geminiModel: process.env.GEMINI_MODEL ?? 'gemini-3.5-flash-lite',
   model: process.env.CLAUDE_MODEL ?? 'claude-sonnet-4-5',
   openaiKey: process.env.OPENAI_API_KEY ?? '',
 };
