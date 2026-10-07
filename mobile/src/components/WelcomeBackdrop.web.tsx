@@ -30,11 +30,12 @@ const CSS = `
 @media (prefers-reduced-motion: reduce) { .et-blob, .et-word { animation: none; } }
 `;
 
-/** Colourful backdrop with drifting greetings; the pointer leaves a trail of greeting bubbles. */
-export function WelcomeBackdrop() {
+/** Colourful backdrop with drifting greetings; with `trail`, the pointer leaves a trail of greeting bubbles. */
+export function WelcomeBackdrop({ trail: withTrail = true }: { trail?: boolean }) {
   const trail = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (!withTrail) return;
     if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
     let lastX = 0, lastY = 0, lastT = 0;
     const onMove = (e: PointerEvent) => {
@@ -54,7 +55,7 @@ export function WelcomeBackdrop() {
     };
     window.addEventListener('pointermove', onMove, { passive: true });
     return () => window.removeEventListener('pointermove', onMove);
-  }, []);
+  }, [withTrail]);
 
   // fixed layout for the ambient words so they don't jump on re-render
   const words = useRef(Array.from({ length: 16 }, (_, i) => ({

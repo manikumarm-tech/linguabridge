@@ -63,7 +63,7 @@ export function Chat({ route, navigation }: NativeStackScreenProps<RootStack, 'C
   };
 
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0} style={{ flex: 1, backgroundColor: t.bg }}>
+    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0} style={{ flex: 1, backgroundColor: t.screen }}>
       {loading ? <ActivityIndicator style={{ marginTop: 40 }} color={t.primary} /> : (
         <FlatList
           ref={list} data={messages} keyExtractor={(m) => m.id}

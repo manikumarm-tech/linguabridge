@@ -105,7 +105,7 @@ export function Onboarding() {
       <ScrollView style={{ zIndex: 1 }} contentContainerStyle={{ flexGrow: 1, padding: isWeb ? 16 : 24, paddingTop: isWeb ? 48 : 72, justifyContent: isWeb || step === 'welcome' ? 'center' : 'flex-start' }} keyboardShouldPersistTaps="handled">
        <View style={isWeb ? {
           width: '100%', maxWidth: 460, alignSelf: 'center', flexGrow: step === 'welcome' ? 0 : 1, padding: 28, borderRadius: 24,
-          backgroundColor: t.bg === '#0E1016' ? 'rgba(14,16,22,0.78)' : 'rgba(255,255,255,0.88)',
+          backgroundColor: t.glass,
           borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', backdropFilter: 'blur(14px)', boxShadow: '0 20px 60px rgba(0,0,0,0.35)',
         } as any : { flexGrow: 1 }}>
         {step === 'welcome' && (

@@ -83,7 +83,7 @@ export function NewConversation({ navigation }: NativeStackScreenProps<RootStack
   const button = { backgroundColor: t.primary, padding: 14, borderRadius: radius.md, alignItems: 'center', flex: 1 } as const;
 
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: t.bg }} contentContainerStyle={{ padding: 20, gap: 16 }} keyboardShouldPersistTaps="handled">
+    <ScrollView style={{ flex: 1, backgroundColor: t.screen }} contentContainerStyle={{ padding: 20, gap: 16 }} keyboardShouldPersistTaps="handled">
       <View style={card}>
         <Text style={heading}>MY CODE</Text>
         <Text style={{ color: t.sub, fontSize: 14 }}>Send this to your friend. When they enter it, you're connected.</Text>

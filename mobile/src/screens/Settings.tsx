@@ -28,7 +28,7 @@ export function Settings() {
   );
 
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: t.bg }} contentContainerStyle={{ padding: 20, paddingBottom: 60 }}>
+    <ScrollView style={{ flex: 1, backgroundColor: t.screen }} contentContainerStyle={{ padding: 20, paddingBottom: 60 }}>
       <H>MY LANGUAGE</H>
       <LanguagePicker value={user.language} onChange={(c) => save({ language: c, outputFormat: langByCode(c)?.romanizedName ? user.outputFormat : 'native' })} />
 

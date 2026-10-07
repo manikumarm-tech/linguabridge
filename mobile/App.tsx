@@ -9,6 +9,7 @@ import { Home } from './src/screens/Home';
 import { NewConversation } from './src/screens/NewConversation';
 import { Onboarding } from './src/screens/Onboarding';
 import { Settings } from './src/screens/Settings';
+import { WelcomeBackdrop } from './src/components/WelcomeBackdrop';
 import { useApp } from './src/store/app';
 import { useTheme } from './src/theme';
 
@@ -26,10 +27,11 @@ export default function App() {
   const { ready, user, hydrate } = useApp();
   useEffect(() => { hydrate(); }, [hydrate]);
 
-  if (!ready) return <View style={{ flex: 1, justifyContent: 'center', backgroundColor: t.bg }}><ActivityIndicator color={t.primary} /></View>;
+  if (!ready) return <View style={{ flex: 1, justifyContent: 'center', backgroundColor: t.screen }}><ActivityIndicator color={t.primary} /></View>;
 
   const base = t.bg === '#0E1016' ? DarkTheme : DefaultTheme;
-  const navTheme = { ...base, colors: { ...base.colors, background: t.bg, card: t.card, text: t.text, border: t.border, primary: t.primary } };
+  const web = Platform.OS === 'web';
+  const navTheme = { ...base, colors: { ...base.colors, background: t.screen, card: web ? 'transparent' : t.card, text: t.text, border: t.border, primary: t.primary } };
 
   return (
     <SafeAreaProvider>
@@ -37,6 +39,12 @@ export default function App() {
       {!user ? (
         <Onboarding />
       ) : (
+        <>
+        {web && <WelcomeBackdrop trail={false} />}
+        <View style={web ? {
+          flex: 1, width: '100%', maxWidth: 880, alignSelf: 'center', zIndex: 1, backgroundColor: t.glass,
+          borderLeftWidth: 1, borderRightWidth: 1, borderColor: 'rgba(255,255,255,0.06)', backdropFilter: 'blur(14px)',
+        } as any : { flex: 1 }}>
         <NavigationContainer theme={navTheme}>
           <Stack.Navigator
             screenOptions={({ navigation }) => ({
@@ -57,6 +65,8 @@ export default function App() {
             <Stack.Screen name="Settings" component={Settings} />
           </Stack.Navigator>
         </NavigationContainer>
+        </View>
+        </>
       )}
     </SafeAreaProvider>
   );

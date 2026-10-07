@@ -37,7 +37,7 @@ export function Home({ navigation }: NativeStackScreenProps<RootStack, 'Home'>) 
   useEffect(() => connectSocket((e) => { if (e === 'message' || e === 'connected') load(); }), [load]);
 
   return (
-    <View style={{ flex: 1, backgroundColor: t.bg, paddingTop: 64 }}>
+    <View style={{ flex: 1, backgroundColor: t.screen, paddingTop: 64 }}>
       <View style={{ paddingHorizontal: 20, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <View>
           <Text style={{ color: t.text, fontSize: 30, fontWeight: '800' }}>EasyTalk</Text>
