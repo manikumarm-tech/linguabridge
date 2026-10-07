@@ -3,6 +3,7 @@ import { FlatList, Pressable, RefreshControl, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { api, connectSocket } from '../api/client';
+import { confirmDeleteChat } from '../components/confirm';
 import { radius, useTheme } from '../theme';
 import type { ConversationItem } from '../types';
 import type { RootStack } from '../../App';
@@ -26,6 +27,12 @@ export function Home({ navigation }: NativeStackScreenProps<RootStack, 'Home'>) 
     try { setItems(await api.conversations()); } catch {} finally { setRefreshing(false); }
   }, []);
 
+  const remove = async (item: ConversationItem) => {
+    if (!(await confirmDeleteChat(item.peer.name))) return;
+    setItems((xs) => xs.filter((x) => x.id !== item.id));
+    try { await api.deleteConversation(item.id); } catch { load(); }
+  };
+
   useFocusEffect(useCallback(() => { load(); }, [load]));
   useEffect(() => connectSocket((e) => { if (e === 'message') load(); }), [load]);
 
@@ -46,9 +53,10 @@ export function Home({ navigation }: NativeStackScreenProps<RootStack, 'Home'>) 
       <FlatList
         data={items} keyExtractor={(i) => i.id}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={load} />}
+        ListHeaderComponent={items.length ? <Text style={{ color: t.sub, fontSize: 12, paddingHorizontal: 20, paddingBottom: 6 }}>Long-press a chat to delete it</Text> : null}
         ListEmptyComponent={<Text style={{ color: t.sub, textAlign: 'center', marginTop: 40, paddingHorizontal: 32 }}>No conversations yet. Start one with a friend, or try a demo contact.</Text>}
         renderItem={({ item }) => (
-          <Pressable onPress={() => navigation.navigate('Chat', { conversationId: item.id, peerName: item.peer.name })} style={{ flexDirection: 'row', gap: 12, paddingHorizontal: 20, paddingVertical: 14, borderBottomColor: t.border, borderBottomWidth: 1 }}>
+          <Pressable onPress={() => navigation.navigate('Chat', { conversationId: item.id, peerName: item.peer.name })} onLongPress={() => remove(item)} delayLongPress={400} style={{ flexDirection: 'row', gap: 12, paddingHorizontal: 20, paddingVertical: 14, borderBottomColor: t.border, borderBottomWidth: 1 }}>
             <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: t.chip, alignItems: 'center', justifyContent: 'center' }}>
               <Text style={{ color: t.primary, fontSize: 20, fontWeight: '700' }}>{item.peer.name.slice(0, 1).toUpperCase()}</Text>
             </View>

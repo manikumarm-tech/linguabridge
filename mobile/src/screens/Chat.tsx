@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Platform, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Platform, Pressable, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { api, connectSocket } from '../api/client';
 import { Composer } from '../components/Composer';
+import { confirmDeleteChat } from '../components/confirm';
 import { MessageBubble } from '../components/MessageBubble';
 import { useApp } from '../store/app';
 import { useTheme } from '../theme';
@@ -26,8 +27,21 @@ export function Chat({ route, navigation }: NativeStackScreenProps<RootStack, 'C
           <Text style={{ color: t.primary, fontSize: 12 }}>Translating automatically</Text>
         </View>
       ),
+      headerRight: () => (
+        <Pressable
+          hitSlop={10}
+          accessibilityLabel="Delete chat"
+          onPress={async () => {
+            if (!(await confirmDeleteChat(peerName))) return;
+            try { await api.deleteConversation(conversationId); navigation.goBack(); }
+            catch (e) { Alert.alert('Could not delete chat', String((e as Error).message)); }
+          }}
+        >
+          <Text style={{ fontSize: 20 }}>🗑️</Text>
+        </Pressable>
+      ),
     });
-  }, [navigation, peerName, t]);
+  }, [navigation, peerName, conversationId, t]);
 
   useEffect(() => {
     api.messages(conversationId)

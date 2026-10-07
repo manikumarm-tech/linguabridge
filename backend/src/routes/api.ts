@@ -164,8 +164,10 @@ export function buildApi(translator: Translator, ocr?: { extractText(b64: string
               m.original_text AS last_text, m.created_at AS last_at, m.translation AS last_translation, m.sender_id AS last_sender
        FROM conversations c
        JOIN users u ON u.id = CASE WHEN c.user_a=$1 THEN c.user_b ELSE c.user_a END
-       LEFT JOIN LATERAL (SELECT * FROM messages WHERE conversation_id=c.id ORDER BY created_at DESC LIMIT 1) m ON true
-       WHERE c.user_a=$1 OR c.user_b=$1
+       LEFT JOIN conversation_clears cc ON cc.conversation_id=c.id AND cc.user_id=$1
+       LEFT JOIN LATERAL (SELECT * FROM messages WHERE conversation_id=c.id AND created_at > COALESCE(cc.cleared_at, '-infinity')
+                          ORDER BY created_at DESC LIMIT 1) m ON true
+       WHERE (c.user_a=$1 OR c.user_b=$1) AND (cc.cleared_at IS NULL OR m.id IS NOT NULL)
        ORDER BY COALESCE(m.created_at, c.created_at) DESC`, [me]);
     res.json(rows.map((x) => {
       const t = x.last_translation as TranslationResult | null;
@@ -195,12 +197,24 @@ export function buildApi(translator: Translator, ocr?: { extractText(b64: string
   r.get('/conversations/:id/messages', requireAuth, wrap(async (req, res) => {
     const conv = await getConversation(req.params.id, res.locals.userId);
     const rows = await q<MsgRow>(
-      'SELECT * FROM messages WHERE conversation_id=$1 ORDER BY created_at ASC LIMIT 500', [conv.id]);
+      `SELECT m.* FROM messages m
+       LEFT JOIN conversation_clears cc ON cc.conversation_id=m.conversation_id AND cc.user_id=$2
+       WHERE m.conversation_id=$1 AND m.created_at > COALESCE(cc.cleared_at, '-infinity')
+       ORDER BY m.created_at ASC LIMIT 500`, [conv.id, res.locals.userId]);
     const peer = publicUser(await getUser(conv.peerId));
     res.json({
       peer,
       messages: rows.map((m) => serializeMessage(m, m.sender_id === res.locals.userId ? conv.peerId : res.locals.userId)),
     });
+  }));
+
+  /** Delete chat for me only: hides everything so far; new messages bring it back. */
+  r.delete('/conversations/:id', requireAuth, wrap(async (req, res) => {
+    const conv = await getConversation(req.params.id, res.locals.userId);
+    await q(
+      `INSERT INTO conversation_clears (conversation_id, user_id) VALUES ($1,$2)
+       ON CONFLICT (conversation_id, user_id) DO UPDATE SET cleared_at=now()`, [conv.id, res.locals.userId]);
+    res.json({ ok: true });
   }));
 
   // ---- messaging --------------------------------------------------------

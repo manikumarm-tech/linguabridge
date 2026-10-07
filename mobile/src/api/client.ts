@@ -33,6 +33,7 @@ export const api = {
   conversations: () => call<ConversationItem[]>('GET', '/conversations'),
   openConversation: (peerHandle: string) => call<{ id: string; peer: User }>('POST', '/conversations', { peerHandle }),
   messages: (id: string) => call<{ peer: User; messages: Message[] }>('GET', `/conversations/${id}/messages`),
+  deleteConversation: (id: string) => call<{ ok: true }>('DELETE', `/conversations/${id}`),
   send: (id: string, text: string, kind: 'text' | 'voice' = 'text') =>
     call<Message>('POST', `/conversations/${id}/messages`, { text, kind }),
   preview: (id: string, text: string, mode?: TranslationMode) =>

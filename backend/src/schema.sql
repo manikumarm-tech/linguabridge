@@ -34,3 +34,11 @@ CREATE TABLE IF NOT EXISTS messages (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS messages_conv_idx ON messages (conversation_id, created_at);
+
+-- "Delete chat" is per user: messages up to cleared_at are hidden for that user only
+CREATE TABLE IF NOT EXISTS conversation_clears (
+  conversation_id uuid NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  cleared_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (conversation_id, user_id)
+);
