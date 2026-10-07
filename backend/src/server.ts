@@ -2,6 +2,7 @@ import http from 'node:http';
 import cors from 'cors';
 import express from 'express';
 import { WebSocketServer } from 'ws';
+import { GeminiLLM } from './ai/gemini.js';
 import { ClaudeLLM } from './ai/llm.js';
 import { verify } from './auth.js';
 import { BOTS } from './bots.js';
@@ -21,7 +22,7 @@ async function seedBots() {
 }
 
 async function main() {
-  if (!config.anthropicKey) console.warn('ANTHROPIC_API_KEY is not set: translation calls will fail.');
+  if (!config.geminiKey && !config.anthropicKey) console.warn('Neither GEMINI_API_KEY nor ANTHROPIC_API_KEY is set: translation calls will fail.');
   await migrate();
   await seedBots();
 
@@ -29,7 +30,9 @@ async function main() {
   app.use(cors());
   app.use(express.json({ limit: '15mb' }));
   app.get('/health', (_req, res) => res.json({ ok: true }));
-  const llm = new ClaudeLLM();
+  // Gemini when its key is set (free tier), otherwise Claude
+  const llm = config.geminiKey ? new GeminiLLM() : new ClaudeLLM();
+  console.log(`translation model: ${config.geminiKey ? `Gemini ${config.geminiModel}` : `Claude ${config.model}`}`);
   app.use('/api', buildApi(new Translator(llm), llm));
 
   const server = http.createServer(app);

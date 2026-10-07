@@ -2,7 +2,7 @@
 
 Two-way multilingual chat. Each person types in their own language (native script or romanized: Hinglish, Tanglish, …) and reads everyone else's messages in theirs.
 
-- `backend/`: Node + TypeScript, Express REST, WebSocket, PostgreSQL, Claude for detection and translation
+- `backend/`: Node + TypeScript, Express REST, WebSocket, PostgreSQL, Gemini (free tier) or Claude for detection and translation
 - `mobile/`: React Native (Expo, TypeScript)
 
 ## Run it
@@ -10,7 +10,7 @@ Two-way multilingual chat. Each person types in their own language (native scrip
 ```bash
 # 1. backend
 cd backend
-cp .env.example .env          # set ANTHROPIC_API_KEY, DATABASE_URL
+cp .env.example .env          # set GEMINI_API_KEY (free) or ANTHROPIC_API_KEY, and DATABASE_URL
 createdb linguabridge
 npm install
 npm run dev                   # migrates the schema and seeds 3 demo contacts

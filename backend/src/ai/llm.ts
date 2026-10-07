@@ -21,7 +21,7 @@ export interface LLM {
   run(userPrompt: string, opts?: { temperature?: number }): Promise<RawLLMResult>;
 }
 
-const TOOL: Anthropic.Tool = {
+export const TOOL: Anthropic.Tool = {
   name: 'submit_translation',
   description: 'Return the language detection and the translations for the chat message.',
   input_schema: {
