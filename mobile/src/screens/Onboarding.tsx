@@ -5,6 +5,7 @@ import { api } from '../api/client';
 import { formatOptions } from '../components/formats';
 import { GoogleButton } from '../components/GoogleButton';
 import { LanguagePicker } from '../components/LanguagePicker';
+import { WelcomeBackdrop } from '../components/WelcomeBackdrop';
 import { Option } from '../components/Option';
 import { langByCode } from '../languages';
 import { useApp } from '../store/app';
@@ -12,6 +13,8 @@ import { radius, useTheme } from '../theme';
 import type { OutputFormat } from '../types';
 
 type Step = 'welcome' | 'language' | 'format' | 'english' | 'profile' | 'login';
+
+const isWeb = Platform.OS === 'web';
 
 export function Onboarding() {
   const t = useTheme();
@@ -97,13 +100,19 @@ export function Onboarding() {
   const input = { backgroundColor: t.card, color: t.text, borderRadius: radius.md, borderWidth: 1, borderColor: t.border, padding: 14, fontSize: 16, marginBottom: 12 } as const;
 
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, backgroundColor: t.bg }}>
-      <ScrollView contentContainerStyle={{ flexGrow: 1, padding: 24, paddingTop: 72, justifyContent: step === 'welcome' ? 'center' : 'flex-start' }} keyboardShouldPersistTaps="handled">
+    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, backgroundColor: isWeb ? 'transparent' : t.bg }}>
+      <WelcomeBackdrop />
+      <ScrollView style={{ zIndex: 1 }} contentContainerStyle={{ flexGrow: 1, padding: isWeb ? 16 : 24, paddingTop: isWeb ? 48 : 72, justifyContent: isWeb || step === 'welcome' ? 'center' : 'flex-start' }} keyboardShouldPersistTaps="handled">
+       <View style={isWeb ? {
+          width: '100%', maxWidth: 460, alignSelf: 'center', flexGrow: step === 'welcome' ? 0 : 1, padding: 28, borderRadius: 24,
+          backgroundColor: t.bg === '#0E1016' ? 'rgba(14,16,22,0.78)' : 'rgba(255,255,255,0.88)',
+          borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', backdropFilter: 'blur(14px)', boxShadow: '0 20px 60px rgba(0,0,0,0.35)',
+        } as any : { flexGrow: 1 }}>
         {step === 'welcome' && (
           <View style={{ gap: 16 }}>
-            <Text style={{ fontSize: 56 }}>🌉</Text>
-            <Text style={{ color: t.text, fontSize: 34, fontWeight: '800' }}>Welcome to EasyTalk</Text>
-            <Text style={{ color: t.sub, fontSize: 18, marginBottom: 24 }}>Talk to anyone in their language.</Text>
+            <Text style={{ fontSize: 52, textAlign: isWeb ? 'center' : 'left' }}>💬</Text>
+            <Text style={{ color: t.text, fontSize: 34, fontWeight: '800', textAlign: isWeb ? 'center' : 'left' }}>Welcome to EasyTalk</Text>
+            <Text style={{ color: t.sub, fontSize: 18, marginBottom: 16, textAlign: isWeb ? 'center' : 'left' }}>Talk to anyone in their language.</Text>
             <GoogleButton onToken={withGoogle} />
             <Btn label="Get started without Google" secondary onPress={next} />
             <Btn label="Sign in with username" secondary onPress={() => setStep('login')} />
@@ -164,6 +173,7 @@ export function Onboarding() {
           </View>
         )}
         {step === 'login' && <View style={{ marginTop: 12 }}><Btn label="Back" secondary onPress={back} /></View>}
+       </View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
