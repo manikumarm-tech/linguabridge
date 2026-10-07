@@ -3,7 +3,7 @@ import { FlatList, Pressable, RefreshControl, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { api, connectSocket } from '../api/client';
-import { confirmDeleteChat } from '../components/confirm';
+import { confirmDeleteChat } from '../components/dialog';
 import { radius, useTheme } from '../theme';
 import type { ConversationItem } from '../types';
 import type { RootStack } from '../../App';

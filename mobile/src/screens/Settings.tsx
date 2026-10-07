@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Alert, Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native';
+import { notify } from '../components/dialog';
 import { defaultBaseUrl, getBaseUrl } from '../api/client';
 import { DISPLAY_MODES, formatOptions, TRANSLATION_MODES } from '../components/formats';
 import { LanguagePicker } from '../components/LanguagePicker';
@@ -16,7 +17,7 @@ export function Settings() {
   if (!user) return null;
   const lang = langByCode(user.language)!;
 
-  const save = (patch: Partial<User>) => updateSettings(patch).catch((e) => Alert.alert('Could not save', String(e.message)));
+  const save = (patch: Partial<User>) => updateSettings(patch).catch((e) => notify('Could not save', String(e.message)));
   const H = ({ children }: { children: string }) => <Text style={{ color: t.sub, fontSize: 12, fontWeight: '700', marginTop: 24, marginBottom: 8 }}>{children}</Text>;
   const Row = ({ label, value, onChange }: { label: string; value: boolean; onChange: (v: boolean) => void }) => (
     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: t.card, borderRadius: radius.md, padding: 14, borderWidth: 1, borderColor: t.border }}>

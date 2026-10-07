@@ -181,6 +181,18 @@ export function buildApi(translator: Translator, ocr?: { extractText(b64: string
     }));
   }));
 
+  /** Username suggestions for "New conversation": prefix match on handle or name, excluding me. */
+  r.get('/users/search', requireAuth, wrap(async (req, res) => {
+    const term = z.string().trim().max(40).parse(req.query.q ?? '').toLowerCase();
+    if (term.length < 2) return res.json([]);
+    const like = term.replace(/[\\%_]/g, (c) => `\\${c}`) + '%';
+    const rows = await q<UserRow>(
+      `SELECT * FROM users
+       WHERE id <> $1 AND (handle LIKE $2 OR lower(name) LIKE $2 OR handle LIKE 'demo-' || $2)
+       ORDER BY is_bot, handle LIMIT 8`, [res.locals.userId, like]);
+    res.json(rows.map((u) => ({ handle: u.handle, name: u.name, language: u.language, isBot: u.is_bot })));
+  }));
+
   r.post('/conversations', requireAuth, wrap(async (req, res) => {
     const me = res.locals.userId as string;
     const { peerHandle } = z.object({ peerHandle: z.string() }).parse(req.body);

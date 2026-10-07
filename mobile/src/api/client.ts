@@ -31,6 +31,7 @@ export const api = {
   login: (handle: string) => call<{ token: string; user: User }>('POST', '/auth/login', { handle }),
   updateMe: (b: Partial<User>) => call<User>('PATCH', '/me', b),
   conversations: () => call<ConversationItem[]>('GET', '/conversations'),
+  searchUsers: (q: string) => call<{ handle: string; name: string; language: string; isBot: boolean }[]>('GET', `/users/search?q=${encodeURIComponent(q)}`),
   openConversation: (peerHandle: string) => call<{ id: string; peer: User }>('POST', '/conversations', { peerHandle }),
   messages: (id: string) => call<{ peer: User; messages: Message[] }>('GET', `/conversations/${id}/messages`),
   deleteConversation: (id: string) => call<{ ok: true }>('DELETE', `/conversations/${id}`),

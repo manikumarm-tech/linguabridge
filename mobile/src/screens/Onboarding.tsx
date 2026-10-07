@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native';
+import { notify } from '../components/dialog';
 import { api } from '../api/client';
 import { formatOptions } from '../components/formats';
 import { LanguagePicker } from '../components/LanguagePicker';
@@ -36,14 +37,14 @@ export function Onboarding() {
       await signIn(r.token, r.user);
     } catch (e) {
       const m = (e as Error).message;
-      Alert.alert('Could not create profile', m === 'handle_taken' ? 'That username is taken. Try another.' : m);
+      notify('Could not create profile', m === 'handle_taken' ? 'That username is taken. Try another.' : m);
     } finally { setBusy(false); }
   };
 
   const login = async () => {
     setBusy(true);
     try { const r = await api.login(handle.trim()); await signIn(r.token, r.user); }
-    catch (e) { Alert.alert('Could not sign in', (e as Error).message === 'user_not_found' ? 'No account with that username.' : (e as Error).message); }
+    catch (e) { notify('Could not sign in', (e as Error).message === 'user_not_found' ? 'No account with that username.' : (e as Error).message); }
     finally { setBusy(false); }
   };
 

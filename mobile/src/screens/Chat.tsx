@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Platform, Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, FlatList, KeyboardAvoidingView, Platform, Pressable, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { api, connectSocket } from '../api/client';
 import { Composer } from '../components/Composer';
-import { confirmDeleteChat } from '../components/confirm';
+import { confirmDeleteChat, notify } from '../components/dialog';
 import { MessageBubble } from '../components/MessageBubble';
 import { useApp } from '../store/app';
 import { useTheme } from '../theme';
@@ -34,7 +34,7 @@ export function Chat({ route, navigation }: NativeStackScreenProps<RootStack, 'C
           onPress={async () => {
             if (!(await confirmDeleteChat(peerName))) return;
             try { await api.deleteConversation(conversationId); navigation.goBack(); }
-            catch (e) { Alert.alert('Could not delete chat', String((e as Error).message)); }
+            catch (e) { notify('Could not delete chat', String((e as Error).message)); }
           }}
         >
           <Text style={{ fontSize: 20 }}>🗑️</Text>
@@ -46,7 +46,7 @@ export function Chat({ route, navigation }: NativeStackScreenProps<RootStack, 'C
   useEffect(() => {
     api.messages(conversationId)
       .then((r) => { setPeer(r.peer); setMessages(r.messages); })
-      .catch((e) => Alert.alert('Could not load chat', String(e.message)))
+      .catch((e) => notify('Could not load chat', String(e.message)))
       .finally(() => setLoading(false));
   }, [conversationId]);
 
@@ -59,7 +59,7 @@ export function Chat({ route, navigation }: NativeStackScreenProps<RootStack, 'C
 
   const retranslate = async (m: Message) => {
     try { upsert(await api.retranslate(m.id)); }
-    catch (e) { Alert.alert('Could not translate again', String((e as Error).message)); }
+    catch (e) { notify('Could not translate again', String((e as Error).message)); }
   };
 
   return (

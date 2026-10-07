@@ -1,5 +1,6 @@
 import React, { useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Modal, Pressable, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, Text, TextInput, View } from 'react-native';
+import { notify } from './dialog';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import { api } from '../api/client';
@@ -32,7 +33,7 @@ export function Composer({ conversationId, me, peer, onSent }: Props) {
       setText('');
       setPreview(null);
     } catch (e) {
-      Alert.alert('Could not send', String((e as Error).message));
+      notify('Could not send', String((e as Error).message));
     } finally {
       setBusy(false);
     }
@@ -44,7 +45,7 @@ export function Composer({ conversationId, me, peer, onSent }: Props) {
       setPreviewKind(kind);
       setPreview(await api.preview(conversationId, value));
     } catch (e) {
-      Alert.alert('Could not translate', String((e as Error).message));
+      notify('Could not translate', String((e as Error).message));
     } finally {
       setBusy(false);
     }
@@ -66,10 +67,10 @@ export function Composer({ conversationId, me, peer, onSent }: Props) {
     try {
       const a = res.assets[0];
       const { text: found } = await api.extractText(a.base64!, a.mimeType ?? 'image/jpeg');
-      if (!found) Alert.alert('No text found', 'Could not find readable text in that photo.');
+      if (!found) notify('No text found', 'Could not find readable text in that photo.');
       else { setText(found); inputRef.current?.focus(); }
     } catch (e) {
-      Alert.alert('Could not read the photo', String((e as Error).message));
+      notify('Could not read the photo', String((e as Error).message));
     } finally {
       setBusy(false);
     }
@@ -77,7 +78,7 @@ export function Composer({ conversationId, me, peer, onSent }: Props) {
 
   const pickFile = async () => {
     await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: false });
-    Alert.alert('Attachments', 'File sharing is not available yet. Text, voice and photo-to-text are supported.');
+    notify('Attachments', 'File sharing is not available yet. Text, voice and photo-to-text are supported.');
   };
 
   const IconBtn = ({ label, onPress, active }: { label: string; onPress: () => void; active?: boolean }) => (
