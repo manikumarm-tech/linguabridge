@@ -15,9 +15,16 @@
     },
     "android": {
       "package": "com.linguabridge.app",
-      "permissions": ["RECORD_AUDIO"]
+      "permissions": [
+        "RECORD_AUDIO"
+      ]
     },
-    "plugins": ["expo-speech-recognition"],
-    "extra": { "apiUrl": "" }
+    "plugins": [
+      "expo-speech-recognition",
+      "expo-asset"
+    ],
+    "extra": {
+      "apiUrl": ""
+    }
   }
 }

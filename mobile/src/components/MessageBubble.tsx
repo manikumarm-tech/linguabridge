@@ -32,7 +32,7 @@ export function MessageBubble({ message: m, me, displayMode, onRetranslate }: Pr
   const tt = targetText(m);
   const en = english(m);
   const tr = m.translation;
-  const lowConf = tr && (tr.status === 'low_confidence' || tr.status === 'degraded');
+  const lowConf = tr && (tr.status === 'low_confidence' || tr.status === 'degraded' || tr.status === 'failed');
   const sameLang = !!tr && tr.detectedLanguageCode === tr.targetLanguageCode && tr.status !== 'degraded' && !tr.isRomanized;
 
   // Layers: translation is primary for others; for my own message the original I typed is primary.
@@ -101,7 +101,7 @@ export function MessageBubble({ message: m, me, displayMode, onRetranslate }: Pr
         {m.detected ? <Text style={{ color: t.sub, fontSize: 11 }}>{m.detected.label}{m.kind === 'voice' ? '  🎤' : ''}</Text> : null}
         {lowConf ? (
           <View style={{ backgroundColor: t.warnBg, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2 }}>
-            <Text style={{ color: t.warn, fontSize: 11, fontWeight: '600' }}>{tr!.status === 'degraded' ? 'Check translation' : `Low confidence ${Math.round(tr!.confidence * 100)}%`}</Text>
+            <Text style={{ color: t.warn, fontSize: 11, fontWeight: '600' }}>{tr!.status === 'failed' ? 'Translation failed' : tr!.status === 'degraded' ? 'Check translation' : `Low confidence ${Math.round(tr!.confidence * 100)}%`}</Text>
           </View>
         ) : null}
       </View>

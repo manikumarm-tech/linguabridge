@@ -94,16 +94,23 @@ export class Translator {
 
     let prompt = buildUserPrompt(req, pre);
     const temperature = req.regenerate ? 0.7 : 0.2;
-    let raw = await this.llm.run(prompt, { temperature });
-    let problems = validate(req, raw);
-
+    let raw: RawLLMResult;
+    let problems: string[];
     let degraded = false;
-    if (problems.length) {
-      // one corrective retry
-      prompt += `\n\nYour previous answer was rejected: ${problems.join('; ')}. Fix exactly these problems.`;
-      raw = await this.llm.run(prompt, { temperature: 0.1 });
+    try {
+      raw = await this.llm.run(prompt, { temperature });
       problems = validate(req, raw);
-      if (problems.length) degraded = true;
+      if (problems.length) {
+        // one corrective retry
+        prompt += `\n\nYour previous answer was rejected: ${problems.join('; ')}. Fix exactly these problems.`;
+        raw = await this.llm.run(prompt, { temperature: 0.1 });
+        problems = validate(req, raw);
+        if (problems.length) degraded = true;
+      }
+    } catch (e) {
+      // model unreachable (bad key, no credit, outage): deliver the original text, marked failed
+      console.error('translation failed:', (e as Error).message);
+      return { ...skipped(req, pre), translations: { [requireLanguage(req.targetLang).name.toLowerCase()]: {} }, status: 'failed' };
     }
 
     const detection = normalizeDetection(raw.detection, pre);
