@@ -1,0 +1,23 @@
+{
+  "expo": {
+    "name": "LinguaBridge",
+    "slug": "linguabridge",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "bundleIdentifier": "com.linguabridge.app",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "LinguaBridge uses the microphone to translate what you say.",
+        "NSSpeechRecognitionUsageDescription": "LinguaBridge converts your speech to text so it can be translated.",
+        "NSPhotoLibraryUsageDescription": "LinguaBridge reads text from photos you choose so it can be translated."
+      }
+    },
+    "android": {
+      "package": "com.linguabridge.app",
+      "permissions": ["RECORD_AUDIO"]
+    },
+    "plugins": ["expo-speech-recognition"],
+    "extra": { "apiUrl": "" }
+  }
+}

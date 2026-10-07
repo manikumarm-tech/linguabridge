@@ -1,0 +1,49 @@
+import http from 'node:http';
+import cors from 'cors';
+import express from 'express';
+import { WebSocketServer } from 'ws';
+import { ClaudeLLM } from './ai/llm.js';
+import { verify } from './auth.js';
+import { BOTS } from './bots.js';
+import { config } from './config.js';
+import { q } from './db.js';
+import { register } from './hub.js';
+import { migrate } from './migrate.js';
+import { Translator } from './pipeline/translate.js';
+import { buildApi } from './routes/api.js';
+
+async function seedBots() {
+  for (const b of BOTS) {
+    await q(
+      `INSERT INTO users (handle,name,language,output_format,show_english,is_bot)
+       VALUES ($1,$2,$3,'both',true,true) ON CONFLICT (handle) DO NOTHING`, [b.handle, b.name, b.language]);
+  }
+}
+
+async function main() {
+  if (!config.anthropicKey) console.warn('ANTHROPIC_API_KEY is not set: translation calls will fail.');
+  await migrate();
+  await seedBots();
+
+  const app = express();
+  app.use(cors());
+  app.use(express.json({ limit: '15mb' }));
+  app.get('/health', (_req, res) => res.json({ ok: true }));
+  const llm = new ClaudeLLM();
+  app.use('/api', buildApi(new Translator(llm), llm));
+
+  const server = http.createServer(app);
+  const wss = new WebSocketServer({ server, path: '/ws' });
+  wss.on('connection', (ws, req) => {
+    const token = new URL(req.url ?? '', 'http://x').searchParams.get('token') ?? '';
+    const userId = verify(token);
+    if (!userId) return ws.close(4401, 'unauthorized');
+    register(userId, ws);
+    const ping = setInterval(() => ws.readyState === ws.OPEN && ws.ping(), 30_000);
+    ws.on('close', () => clearInterval(ping));
+  });
+
+  server.listen(config.port, () => console.log(`LinguaBridge API on :${config.port}`));
+}
+
+main().catch((e) => { console.error(e); process.exit(1); });
