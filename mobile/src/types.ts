@@ -5,6 +5,8 @@ export type TranslationMode = 'natural' | 'literal' | 'casual';
 export interface User {
   id: string; handle: string; name: string; language: string; outputFormat: OutputFormat;
   showEnglish: boolean; displayMode: DisplayMode; translationMode: TranslationMode; isBot: boolean;
+  /** only on my own profile: set once Google is linked */
+  email?: string | null; avatarUrl?: string | null;
 }
 
 export interface LangText { native?: string; romanized?: string }

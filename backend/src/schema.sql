@@ -51,3 +51,8 @@ CREATE TABLE IF NOT EXISTS connect_codes (
   used_at timestamptz
 );
 CREATE INDEX IF NOT EXISTS connect_codes_user_idx ON connect_codes (user_id);
+
+-- Sign in with Google (accounts linked to Google can no longer sign in by username)
+ALTER TABLE users ADD COLUMN IF NOT EXISTS google_sub text UNIQUE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email text;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url text;

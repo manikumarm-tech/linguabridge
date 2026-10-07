@@ -3,6 +3,7 @@ import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollVie
 import { notify } from '../components/dialog';
 import { api } from '../api/client';
 import { formatOptions } from '../components/formats';
+import { GoogleButton } from '../components/GoogleButton';
 import { LanguagePicker } from '../components/LanguagePicker';
 import { Option } from '../components/Option';
 import { langByCode } from '../languages';
@@ -22,13 +23,20 @@ export function Onboarding() {
   const [name, setName] = useState('');
   const [handle, setHandle] = useState('');
   const [busy, setBusy] = useState(false);
+  // set when a new Google user is choosing their language before the account is created
+  const [google, setGoogle] = useState<{ idToken: string; name: string } | null>(null);
 
   const lang = langByCode(language)!;
   const hasRoman = !!lang.romanizedName;
-  const order: Step[] = ['welcome', 'language', ...(hasRoman ? (['format'] as Step[]) : []), 'english', 'profile'];
+  const order: Step[] = ['welcome', 'language', ...(hasRoman ? (['format'] as Step[]) : []), 'english', ...(google ? [] : (['profile'] as Step[]))];
+  const last = order[order.length - 1];
   const idx = order.indexOf(step);
   const next = () => setStep(order[Math.min(idx + 1, order.length - 1)]);
-  const back = () => setStep(step === 'login' ? 'welcome' : order[Math.max(idx - 1, 0)]);
+  const back = () => {
+    const to = step === 'login' ? 'welcome' : order[Math.max(idx - 1, 0)];
+    if (to === 'welcome') setGoogle(null);
+    setStep(to);
+  };
 
   const finish = async () => {
     setBusy(true);
@@ -41,10 +49,37 @@ export function Onboarding() {
     } finally { setBusy(false); }
   };
 
+  const withGoogle = async (idToken: string) => {
+    setBusy(true);
+    try {
+      const r = await api.googleSignIn(idToken);
+      if ('token' in r) await signIn(r.token, r.user);
+      else { setGoogle({ idToken, name: r.name }); setStep('language'); }
+    } catch (e) { notify('Google sign-in failed', (e as Error).message); }
+    finally { setBusy(false); }
+  };
+
+  const finishGoogle = async () => {
+    if (!google) return;
+    setBusy(true);
+    try {
+      const r = await api.googleSignIn(google.idToken, { language, outputFormat: hasRoman ? format : 'native', showEnglish });
+      if ('token' in r) await signIn(r.token, r.user);
+    } catch (e) {
+      const m = (e as Error).message;
+      // the Google token lasts ~1 hour; if it ran out, start over
+      if (m === 'invalid_google_token') { setGoogle(null); setStep('welcome'); notify('Please sign in with Google again'); }
+      else notify('Could not create account', m);
+    } finally { setBusy(false); }
+  };
+
   const login = async () => {
     setBusy(true);
     try { const r = await api.login(handle.trim()); await signIn(r.token, r.user); }
-    catch (e) { notify('Could not sign in', (e as Error).message === 'user_not_found' ? 'No account with that username.' : (e as Error).message); }
+    catch (e) {
+      const m = (e as Error).message;
+      notify('Could not sign in', m === 'user_not_found' ? 'No account with that username.' : m === 'use_google' ? 'This account uses Google. Tap "Continue with Google".' : m);
+    }
     finally { setBusy(false); }
   };
 
@@ -69,14 +104,16 @@ export function Onboarding() {
             <Text style={{ fontSize: 56 }}>🌉</Text>
             <Text style={{ color: t.text, fontSize: 34, fontWeight: '800' }}>Welcome to EasyTalk</Text>
             <Text style={{ color: t.sub, fontSize: 18, marginBottom: 24 }}>Talk to anyone in their language.</Text>
-            <Btn label="Get started" onPress={next} />
-            <Btn label="I already have an account" secondary onPress={() => setStep('login')} />
+            <GoogleButton onToken={withGoogle} />
+            <Btn label="Get started without Google" secondary onPress={next} />
+            <Btn label="Sign in with username" secondary onPress={() => setStep('login')} />
           </View>
         )}
 
         {step === 'login' && (
           <View>
             <Title sub="Enter your username">Welcome back</Title>
+            <View style={{ marginBottom: 16 }}><GoogleButton text="signin_with" onToken={withGoogle} /></View>
             <TextInput style={input} value={handle} onChangeText={setHandle} autoCapitalize="none" placeholder="username" placeholderTextColor={t.sub} />
             <Btn label="Sign in" onPress={login} disabled={handle.trim().length < 3} />
           </View>
@@ -84,7 +121,7 @@ export function Onboarding() {
 
         {step === 'language' && (
           <View>
-            <Title sub="Messages from others will be translated into this language.">Choose your language</Title>
+            <Title sub="Messages from others will be translated into this language.">{google ? `Hi ${google.name.split(' ')[0]}! Choose your language` : 'Choose your language'}</Title>
             <LanguagePicker value={language} onChange={(c) => { setLanguage(c); setFormat('both'); }} />
           </View>
         )}
@@ -120,7 +157,9 @@ export function Onboarding() {
           <View style={{ marginTop: 'auto', paddingTop: 24, gap: 10 }}>
             {step === 'profile'
               ? <Btn label="Start chatting" onPress={finish} disabled={!name.trim() || !/^[a-z0-9_.-]{3,30}$/i.test(handle.trim())} />
-              : <Btn label="Continue" onPress={next} />}
+              : google && step === last
+                ? <Btn label="Start chatting" onPress={finishGoogle} />
+                : <Btn label="Continue" onPress={next} />}
             <Btn label="Back" secondary onPress={back} />
           </View>
         )}

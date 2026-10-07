@@ -3,6 +3,7 @@ import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { q } from '../db.js';
 import { requireAuth, sign } from '../auth.js';
+import { verifyGoogleIdToken } from '../google.js';
 import { emit } from '../hub.js';
 import { LANGUAGES, detectionLabel, getLanguage } from '../languages.js';
 import { Translator, primaryText } from '../pipeline/translate.js';
@@ -13,6 +14,7 @@ import { config } from '../config.js';
 interface UserRow {
   id: string; handle: string; name: string; language: string; output_format: 'native' | 'romanized' | 'both';
   show_english: boolean; display_mode: string; translation_mode: 'natural' | 'literal' | 'casual'; is_bot: boolean;
+  google_sub: string | null; email: string | null; avatar_url: string | null;
 }
 interface MsgRow {
   id: string; conversation_id: string; sender_id: string; original_text: string; kind: string;
@@ -30,6 +32,9 @@ const publicUser = (u: UserRow) => ({
   id: u.id, handle: u.handle, name: u.name, language: u.language, outputFormat: u.output_format,
   showEnglish: u.show_english, displayMode: u.display_mode, translationMode: u.translation_mode, isBot: u.is_bot,
 });
+
+/** What I see about myself (adds my Google email; never sent to other people). */
+const selfUser = (u: UserRow) => ({ ...publicUser(u), email: u.email, avatarUrl: u.avatar_url });
 
 export function serializeMessage(m: MsgRow, recipientId: string | null) {
   const t = m.translation;
@@ -149,17 +154,59 @@ export function buildApi(translator: Translator, ocr?: { extractText(b64: string
       `INSERT INTO users (handle,name,language,output_format,show_english,display_mode,translation_mode)
        VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
       [handle, b.name, b.language, b.outputFormat, b.showEnglish, b.displayMode, b.translationMode]);
-    res.json({ token: sign(u.id), user: publicUser(u) });
+    res.json({ token: sign(u.id), user: selfUser(u) });
   }));
 
   r.post('/auth/login', wrap(async (req, res) => {
     const { handle } = z.object({ handle: z.string() }).parse(req.body);
     const [u] = await q<UserRow>('SELECT * FROM users WHERE handle=$1 AND is_bot=false', [handle.toLowerCase()]);
     if (!u) return res.status(404).json({ error: 'user_not_found' });
-    res.json({ token: sign(u.id), user: publicUser(u) });
+    if (u.google_sub) return res.status(403).json({ error: 'use_google' });
+    res.json({ token: sign(u.id), user: selfUser(u) });
   }));
 
-  r.get('/me', requireAuth, wrap(async (_req, res) => res.json(publicUser(await getUser(res.locals.userId)))));
+  r.get('/config', (_req, res) => res.json({ googleClientId: config.googleClientIds[0] ?? null }));
+
+  /**
+   * Sign in with Google. Known Google account -> signed in. New one -> { needsProfile } until the
+   * client sends the language choices in `profile`, then the account is created.
+   */
+  r.post('/auth/google', wrap(async (req, res) => {
+    const { idToken, profile } = z.object({
+      idToken: z.string().min(20),
+      profile: registerSchema.pick({ language: true, outputFormat: true, showEnglish: true }).optional(),
+    }).parse(req.body);
+    const g = await verifyGoogleIdToken(idToken);
+    const [known] = await q<UserRow>('SELECT * FROM users WHERE google_sub=$1', [g.sub]);
+    if (known) return res.json({ token: sign(known.id), user: selfUser(known) });
+    if (!profile) return res.json({ needsProfile: true, name: g.name, email: g.email });
+
+    // private handle from the email name, made unique; people connect by code, so it's never typed
+    const base = (g.email.split('@')[0].toLowerCase().replace(/[^a-z0-9_.-]/g, '') || 'user').slice(0, 20).padEnd(3, '0');
+    for (let i = 0; i < 20; i++) {
+      const handle = i === 0 ? base : `${base}${randomInt(100, 10_000)}`;
+      const [u] = await q<UserRow>(
+        `INSERT INTO users (handle,name,language,output_format,show_english,google_sub,email,avatar_url)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (handle) DO NOTHING RETURNING *`,
+        [handle, g.name.slice(0, 60), profile.language, profile.outputFormat, profile.showEnglish, g.sub, g.email, g.picture ?? null]);
+      if (u) return res.json({ token: sign(u.id), user: selfUser(u) });
+    }
+    throw new Error('could_not_create_account');
+  }));
+
+  /** Attach Google to the signed-in (username) account, keeping its chats. */
+  r.post('/auth/google/link', requireAuth, wrap(async (req, res) => {
+    const { idToken } = z.object({ idToken: z.string().min(20) }).parse(req.body);
+    const g = await verifyGoogleIdToken(idToken);
+    const [other] = await q<{ id: string }>('SELECT id FROM users WHERE google_sub=$1', [g.sub]);
+    if (other && other.id !== res.locals.userId) return res.status(409).json({ error: 'google_already_used' });
+    const [u] = await q<UserRow>(
+      'UPDATE users SET google_sub=$1, email=$2, avatar_url=COALESCE(avatar_url,$3) WHERE id=$4 RETURNING *',
+      [g.sub, g.email, g.picture ?? null, res.locals.userId]);
+    res.json(selfUser(u));
+  }));
+
+  r.get('/me', requireAuth, wrap(async (_req, res) => res.json(selfUser(await getUser(res.locals.userId)))));
 
   r.patch('/me', requireAuth, wrap(async (req, res) => {
     const b = z.object({ name: z.string().min(1).max(60), ...prefs }).partial().parse(req.body);
@@ -168,11 +215,11 @@ export function buildApi(translator: Translator, ocr?: { extractText(b64: string
       display_mode: b.displayMode, translation_mode: b.translationMode,
     };
     const keys = Object.keys(cols).filter((k) => cols[k] !== undefined);
-    if (!keys.length) return res.json(publicUser(await getUser(res.locals.userId)));
+    if (!keys.length) return res.json(selfUser(await getUser(res.locals.userId)));
     const [u] = await q<UserRow>(
       `UPDATE users SET ${keys.map((k, i) => `${k}=$${i + 1}`).join(',')} WHERE id=$${keys.length + 1} RETURNING *`,
       [...keys.map((k) => cols[k]), res.locals.userId]);
-    res.json(publicUser(u));
+    res.json(selfUser(u));
   }));
 
   // ---- conversations ----------------------------------------------------

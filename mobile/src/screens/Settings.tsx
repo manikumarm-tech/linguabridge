@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { Pressable, ScrollView, Switch, Text, TextInput, View } from 'react-native';
 import { notify } from '../components/dialog';
-import { defaultBaseUrl, getBaseUrl } from '../api/client';
+import { api, defaultBaseUrl, getBaseUrl } from '../api/client';
 import { DISPLAY_MODES, formatOptions, TRANSLATION_MODES } from '../components/formats';
+import { GoogleButton } from '../components/GoogleButton';
 import { LanguagePicker } from '../components/LanguagePicker';
 import { Option } from '../components/Option';
 import { langByCode } from '../languages';
@@ -12,7 +13,7 @@ import type { User } from '../types';
 
 export function Settings() {
   const t = useTheme();
-  const { user, previewBeforeSend, setPreviewBeforeSend, updateSettings, signOut, setApiUrl } = useApp();
+  const { user, token, previewBeforeSend, setPreviewBeforeSend, updateSettings, signIn, signOut, setApiUrl } = useApp();
   const [url, setUrl] = useState(getBaseUrl());
   if (!user) return null;
   const lang = langByCode(user.language)!;
@@ -56,6 +57,22 @@ export function Settings() {
         onEndEditing={() => setApiUrl(url.trim() === defaultBaseUrl ? null : url.trim())}
         style={{ backgroundColor: t.card, color: t.text, borderRadius: radius.md, borderWidth: 1, borderColor: t.border, padding: 14, fontSize: 15 }} />
       <Text style={{ color: t.sub, fontSize: 12, marginTop: 6 }}>Restart the app after changing the server address.</Text>
+
+      <H>ACCOUNT</H>
+      {user.email ? (
+        <View style={{ backgroundColor: t.card, borderRadius: radius.md, padding: 14, borderWidth: 1, borderColor: t.border }}>
+          <Text style={{ color: t.text, fontSize: 16 }}>Signed in with Google</Text>
+          <Text style={{ color: t.sub, fontSize: 14, marginTop: 2 }}>{user.email}</Text>
+        </View>
+      ) : (
+        <View style={{ backgroundColor: t.card, borderRadius: radius.md, padding: 14, borderWidth: 1, borderColor: t.border, gap: 12 }}>
+          <Text style={{ color: t.sub, fontSize: 14 }}>Link Google to keep this account and its chats safe, and sign in on any device. After linking, the username alone can no longer open it.</Text>
+          <GoogleButton text="continue_with" onToken={async (idToken) => {
+            try { await signIn(token!, await api.linkGoogle(idToken)); notify('Google linked', 'Next time, sign in with Google.'); }
+            catch (e) { const m = (e as Error).message; notify('Could not link Google', m === 'google_already_used' ? 'That Google account is already used by another EasyTalk account.' : m); }
+          }} />
+        </View>
+      )}
 
       <Pressable onPress={() => signOut()} style={{ marginTop: 32, padding: 16, alignItems: 'center', borderRadius: radius.md, backgroundColor: t.chip }}>
         <Text style={{ color: t.warn, fontWeight: '700' }}>Sign out ({user.handle})</Text>

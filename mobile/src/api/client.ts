@@ -33,6 +33,10 @@ export const api = {
   register: (b: Partial<User> & { name: string; handle: string; language: string }) =>
     call<{ token: string; user: User }>('POST', '/auth/register', b),
   login: (handle: string) => call<{ token: string; user: User }>('POST', '/auth/login', { handle }),
+  config: () => call<{ googleClientId: string | null }>('GET', '/config'),
+  googleSignIn: (idToken: string, profile?: { language: string; outputFormat: User['outputFormat']; showEnglish: boolean }) =>
+    call<{ token: string; user: User } | { needsProfile: true; name: string; email: string }>('POST', '/auth/google', { idToken, profile }),
+  linkGoogle: (idToken: string) => call<User>('POST', '/auth/google/link', { idToken }),
   updateMe: (b: Partial<User>) => call<User>('PATCH', '/me', b),
   conversations: () => call<ConversationItem[]>('GET', '/conversations'),
   myConnectCode: () => call<{ code: string; expiresAt: string }>('POST', '/connect/code'),
