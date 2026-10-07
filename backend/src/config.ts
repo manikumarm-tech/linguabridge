@@ -3,6 +3,7 @@ export const config = {
   databaseUrl: process.env.DATABASE_URL ?? 'postgres://postgres:postgres@localhost:5432/linguabridge',
   jwtSecret: process.env.JWT_SECRET ?? 'dev-secret-change-me',
   anthropicKey: process.env.ANTHROPIC_API_KEY ?? '',
+  anthropicWorkspaceId: process.env.ANTHROPIC_WORKSPACE_ID ?? '',
   model: process.env.CLAUDE_MODEL ?? 'claude-sonnet-4-5',
   openaiKey: process.env.OPENAI_API_KEY ?? '',
 };

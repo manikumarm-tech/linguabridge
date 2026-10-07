@@ -56,7 +56,11 @@ const TOOL: Anthropic.Tool = {
 export class ClaudeLLM implements LLM {
   private client: Anthropic;
   constructor(apiKey = config.anthropicKey, private model = config.model) {
-    this.client = new Anthropic({ apiKey });
+    this.client = new Anthropic({
+      apiKey,
+      // user-scoped keys (sk-ant-usr-…) must name the workspace on every request
+      defaultHeaders: config.anthropicWorkspaceId ? { 'anthropic-workspace-id': config.anthropicWorkspaceId } : undefined,
+    });
   }
 
   async run(userPrompt: string, opts: { temperature?: number } = {}): Promise<RawLLMResult> {
