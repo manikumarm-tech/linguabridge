@@ -52,7 +52,7 @@ export default function App() {
             })}
           >
             <Stack.Screen name="Home" component={Home} options={{ headerShown: false }} />
-            <Stack.Screen name="NewConversation" component={NewConversation} options={{ title: 'New Conversation' }} />
+            <Stack.Screen name="NewConversation" component={NewConversation} options={{ title: 'Add friend' }} />
             <Stack.Screen name="Chat" component={Chat} options={{ title: '' }} />
             <Stack.Screen name="Settings" component={Settings} />
           </Stack.Navigator>

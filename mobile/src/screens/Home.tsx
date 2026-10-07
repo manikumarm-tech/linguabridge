@@ -34,7 +34,7 @@ export function Home({ navigation }: NativeStackScreenProps<RootStack, 'Home'>) 
   };
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
-  useEffect(() => connectSocket((e) => { if (e === 'message') load(); }), [load]);
+  useEffect(() => connectSocket((e) => { if (e === 'message' || e === 'connected') load(); }), [load]);
 
   return (
     <View style={{ flex: 1, backgroundColor: t.bg, paddingTop: 64 }}>
@@ -47,13 +47,13 @@ export function Home({ navigation }: NativeStackScreenProps<RootStack, 'Home'>) 
       </View>
 
       <Pressable onPress={() => navigation.navigate('NewConversation')} style={{ margin: 20, backgroundColor: t.primary, padding: 16, borderRadius: radius.md, alignItems: 'center' }}>
-        <Text style={{ color: t.onPrimary, fontSize: 16, fontWeight: '700' }}>+  New Conversation</Text>
+        <Text style={{ color: t.onPrimary, fontSize: 16, fontWeight: '700' }}>+  Add friend</Text>
       </Pressable>
 
       <FlatList
         data={items} keyExtractor={(i) => i.id}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={load} />}
-        ListEmptyComponent={<Text style={{ color: t.sub, textAlign: 'center', marginTop: 40, paddingHorizontal: 32 }}>No conversations yet. Start one with a friend, or try a demo contact.</Text>}
+        ListEmptyComponent={<Text style={{ color: t.sub, textAlign: 'center', marginTop: 40, paddingHorizontal: 32 }}>No chats yet. Tap Add friend and share your code, or try a demo contact.</Text>}
         renderItem={({ item }) => (
           <Pressable onPress={() => navigation.navigate('Chat', { conversationId: item.id, peerName: item.peer.name })} onLongPress={() => remove(item)} delayLongPress={400} style={{ flexDirection: 'row', gap: 12, paddingHorizontal: 20, paddingVertical: 14, borderBottomColor: t.border, borderBottomWidth: 1 }}>
             <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: t.chip, alignItems: 'center', justifyContent: 'center' }}>

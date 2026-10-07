@@ -42,3 +42,12 @@ CREATE TABLE IF NOT EXISTS conversation_clears (
   cleared_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (conversation_id, user_id)
 );
+
+-- 6-digit "add friend" codes: short-lived and single use
+CREATE TABLE IF NOT EXISTS connect_codes (
+  code text PRIMARY KEY CHECK (code ~ '^[0-9]{6}$'),
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  expires_at timestamptz NOT NULL,
+  used_at timestamptz
+);
+CREATE INDEX IF NOT EXISTS connect_codes_user_idx ON connect_codes (user_id);
