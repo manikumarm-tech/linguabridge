@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: linguabridge-api
+    name: easytalk
     runtime: node
     plan: free
     rootDir: backend
