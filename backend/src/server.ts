@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import http from 'node:http';
 import cors from 'cors';
 import express from 'express';
@@ -34,6 +35,14 @@ async function main() {
   const llm = config.geminiKey ? new GeminiLLM() : new ClaudeLLM();
   console.log(`translation model: ${config.geminiKey ? `Gemini ${config.geminiModel}` : `Claude ${config.model}`}`);
   app.use('/api', buildApi(new Translator(llm), llm));
+
+  // the web app (mobile/ exported with `expo export -p web`), when it has been built
+  const web = process.env.WEB_DIR ?? new URL('../../mobile/dist', import.meta.url).pathname;
+  if (existsSync(`${web}/index.html`)) {
+    app.use(express.static(web));
+    app.get(/^\/(?!api\/|ws$|health$).*/, (_req, res) => res.sendFile(`${web}/index.html`));
+    console.log(`serving web app from ${web}`);
+  }
 
   const server = http.createServer(app);
   const wss = new WebSocketServer({ server, path: '/ws' });

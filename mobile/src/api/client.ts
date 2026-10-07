@@ -2,8 +2,12 @@ import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import type { ConversationItem, Message, Preview, TranslationMode, User } from '../types';
 
+// the deployed website is served by the API itself, so on web use the page's own origin (except the :8081 dev server)
+const webOrigin = Platform.OS === 'web' && typeof window !== 'undefined' && window.location.port !== '8081' ? window.location.origin : '';
+
 const defaultUrl =
   (Constants.expoConfig?.extra as { apiUrl?: string } | undefined)?.apiUrl ||
+  webOrigin ||
   (Platform.OS === 'android' ? 'http://10.0.2.2:4000' : 'http://localhost:4000');
 
 let baseUrl = defaultUrl;

@@ -4,7 +4,7 @@ services:
     runtime: node
     plan: free
     rootDir: backend
-    buildCommand: npm install --include=dev && npm run build
+    buildCommand: npm install --include=dev && npm run build && cd ../mobile && npm ci && npx expo export -p web
     startCommand: npm start
     healthCheckPath: /health
     envVars:
@@ -12,9 +12,9 @@ services:
         value: "22"
       - key: DATABASE_URL
         sync: false
-      - key: ANTHROPIC_API_KEY
-        sync: false
       - key: JWT_SECRET
         generateValue: true
-      - key: CLAUDE_MODEL
-        value: claude-sonnet-4-5
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-3.5-flash-lite
