@@ -9,7 +9,9 @@ const LEX: Record<string, string> = {
     puriyala puriyudhu purinjidhu polaama polama polam poren varen varuven vaanga vaa poda podi da di machan machi
     ennada enna epdi eppadi eppo naalaiku naala naalaiki inniku indha andha romba konjam seri sari aama illa illai
     venam venum paaru paathen saptiya sapten saapdu saapta ponga vandhuten pesu pesalam sollu sollunga theriyum
-    theriyala nalla ennoda unnoda avan aval avanga ingaye angaye eppadi irukinga irukeenga nanri vanakkam`,
+    theriyala nalla ennoda unnoda avan aval avanga ingaye angaye eppadi irukinga irukeenga nanri vanakkam
+    dei dai ena panra panre pannra pannura panna pannu pannalam ennachu sema mokka kalaai vetti thoonguna thoongu
+    vaada vaadi poda kelambu kelambalam vandhu vandhiya varriya vareengala aprm apram appuram nambu nijama`,
   hi: `tum tu aap main mai mein hum hai hain ho hoon tha thi the kya kyun kyu kaise kaisa kaisi kahan kaha kab kal aaj
     nahi nahin mat mujhe mujhko tumhe tumhein mera meri mere tera teri tere apna kuch koi sab bahut bohot thoda
     acha accha theek thik chalo chaloge chalenge karna karo karunga rahunga raha rahi rahe samajh aa gaya gayi

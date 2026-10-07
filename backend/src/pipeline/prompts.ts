@@ -31,7 +31,11 @@ OUTPUT FIELDS
 const MODE_TEXT: Record<TranslateRequest['mode'], string> = {
   natural: 'NATURAL: translate naturally while fully preserving meaning; reorder freely for fluent phrasing.',
   literal: 'LITERAL: stay close to the original sentence structure and word choice while still being grammatical. Do not paraphrase.',
-  casual: 'CASUAL CHAT: preserve slang, emojis, informal tone, abbreviations and texting style. Sound like a friend texting, not a textbook.',
+  casual:
+    'CASUAL CHAT between friends: preserve slang, emojis, informal tone, abbreviations and texting style. Sound like a friend texting, not a textbook. ' +
+    'Map friendly address words and fillers to what friends say in the target language instead of dropping them or translating them literally ' +
+    '(e.g. Tamil "dei / da / machan" ≈ Hindi "abe / yaar / bhai", Telugu "ra / bava", Kannada "maga / guru", English "bro / dude / man"). ' +
+    'Example: Tanglish "dei ena da panra" → Hinglish "abe kya kar raha hai yaar", English "bro what are you up to".',
 };
 
 export function buildUserPrompt(req: TranslateRequest, pre: PreDetection): string {
