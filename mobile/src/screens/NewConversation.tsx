@@ -69,7 +69,7 @@ export function NewConversation({ navigation }: NativeStackScreenProps<RootStack
 
   const share = async () => {
     if (!mine) return;
-    const message = `Add me on LinguaBridge 👋 My code: ${spaced(mine.code)} (valid for 10 minutes)`;
+    const message = `Add me on EasyTalk 👋 My code: ${spaced(mine.code)} (valid for 10 minutes)`;
     try {
       if (Platform.OS !== 'web' || (typeof navigator !== 'undefined' && 'share' in navigator)) { await Share.share({ message }); return; }
     } catch { /* cancelled or unsupported: fall back to copy */ }

@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "LinguaBridge",
+    "name": "EasyTalk",
     "slug": "linguabridge",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -8,9 +8,9 @@
     "ios": {
       "bundleIdentifier": "com.linguabridge.app",
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "LinguaBridge uses the microphone to translate what you say.",
-        "NSSpeechRecognitionUsageDescription": "LinguaBridge converts your speech to text so it can be translated.",
-        "NSPhotoLibraryUsageDescription": "LinguaBridge reads text from photos you choose so it can be translated."
+        "NSMicrophoneUsageDescription": "EasyTalk uses the microphone to translate what you say.",
+        "NSSpeechRecognitionUsageDescription": "EasyTalk converts your speech to text so it can be translated.",
+        "NSPhotoLibraryUsageDescription": "EasyTalk reads text from photos you choose so it can be translated."
       }
     },
     "android": {

@@ -67,7 +67,7 @@ export function Onboarding() {
         {step === 'welcome' && (
           <View style={{ gap: 16 }}>
             <Text style={{ fontSize: 56 }}>🌉</Text>
-            <Text style={{ color: t.text, fontSize: 34, fontWeight: '800' }}>Welcome to LinguaBridge</Text>
+            <Text style={{ color: t.text, fontSize: 34, fontWeight: '800' }}>Welcome to EasyTalk</Text>
             <Text style={{ color: t.sub, fontSize: 18, marginBottom: 24 }}>Talk to anyone in their language.</Text>
             <Btn label="Get started" onPress={next} />
             <Btn label="I already have an account" secondary onPress={() => setStep('login')} />

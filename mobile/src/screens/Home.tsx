@@ -40,7 +40,7 @@ export function Home({ navigation }: NativeStackScreenProps<RootStack, 'Home'>) 
     <View style={{ flex: 1, backgroundColor: t.bg, paddingTop: 64 }}>
       <View style={{ paddingHorizontal: 20, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <View>
-          <Text style={{ color: t.text, fontSize: 30, fontWeight: '800' }}>LinguaBridge</Text>
+          <Text style={{ color: t.text, fontSize: 30, fontWeight: '800' }}>EasyTalk</Text>
           <Text style={{ color: t.sub, fontSize: 15, marginTop: 2 }}>Break language barriers.</Text>
         </View>
         <Pressable onPress={() => navigation.navigate('Settings')} hitSlop={10}><Text style={{ fontSize: 26 }}>⚙️</Text></Pressable>

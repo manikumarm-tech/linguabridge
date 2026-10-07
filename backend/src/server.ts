@@ -55,7 +55,7 @@ async function main() {
     ws.on('close', () => clearInterval(ping));
   });
 
-  server.listen(config.port, () => console.log(`LinguaBridge API on :${config.port}`));
+  server.listen(config.port, () => console.log(`EasyTalk API on :${config.port}`));
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

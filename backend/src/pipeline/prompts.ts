@@ -2,7 +2,7 @@ import { requireLanguage, hasRomanizedVariant } from '../languages.js';
 import type { TranslateRequest } from '../types.js';
 import type { PreDetection } from './detect.js';
 
-export const SYSTEM_PROMPT = `You are the translation engine of LinguaBridge, a chat app for people who do not share a language.
+export const SYSTEM_PROMPT = `You are the translation engine of EasyTalk, a chat app for people who do not share a language.
 You receive ONE chat message and return structured output through the provided tool. Never answer in prose and never reveal reasoning.
 
 DETECTION

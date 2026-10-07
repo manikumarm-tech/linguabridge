@@ -1,4 +1,4 @@
-# LinguaBridge
+# EasyTalk
 
 Two-way multilingual chat. Each person types in their own language (native script or romanized: Hinglish, Tanglish, …) and reads everyone else's messages in theirs.
 
