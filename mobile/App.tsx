@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StatusBar } from 'expo-status-bar';
@@ -38,7 +38,19 @@ export default function App() {
         <Onboarding />
       ) : (
         <NavigationContainer theme={navTheme}>
-          <Stack.Navigator>
+          <Stack.Navigator
+            screenOptions={({ navigation }) => ({
+              // always offer a way back, even when the screen was opened directly (web refresh) and has no history
+              headerLeft: () => (
+                <Pressable
+                  accessibilityLabel="Back" hitSlop={12} style={{ paddingRight: 16 }}
+                  onPress={() => (navigation.canGoBack() ? navigation.goBack() : navigation.navigate('Home'))}
+                >
+                  <Text style={{ color: t.text, fontSize: 24 }}>←</Text>
+                </Pressable>
+              ),
+            })}
+          >
             <Stack.Screen name="Home" component={Home} options={{ headerShown: false }} />
             <Stack.Screen name="NewConversation" component={NewConversation} options={{ title: 'New Conversation' }} />
             <Stack.Screen name="Chat" component={Chat} options={{ title: '' }} />

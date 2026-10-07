@@ -53,7 +53,6 @@ export function Home({ navigation }: NativeStackScreenProps<RootStack, 'Home'>) 
       <FlatList
         data={items} keyExtractor={(i) => i.id}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={load} />}
-        ListHeaderComponent={items.length ? <Text style={{ color: t.sub, fontSize: 12, paddingHorizontal: 20, paddingBottom: 6 }}>Long-press a chat to delete it</Text> : null}
         ListEmptyComponent={<Text style={{ color: t.sub, textAlign: 'center', marginTop: 40, paddingHorizontal: 32 }}>No conversations yet. Start one with a friend, or try a demo contact.</Text>}
         renderItem={({ item }) => (
           <Pressable onPress={() => navigation.navigate('Chat', { conversationId: item.id, peerName: item.peer.name })} onLongPress={() => remove(item)} delayLongPress={400} style={{ flexDirection: 'row', gap: 12, paddingHorizontal: 20, paddingVertical: 14, borderBottomColor: t.border, borderBottomWidth: 1 }}>
@@ -68,6 +67,9 @@ export function Home({ navigation }: NativeStackScreenProps<RootStack, 'Home'>) 
               <Text numberOfLines={1} style={{ color: t.sub, fontSize: 15, marginTop: 2 }}>{item.lastMessage ?? 'Say hello 👋'}</Text>
               {item.detectedLabel ? <Text style={{ color: t.primary, fontSize: 12, marginTop: 3 }}>{item.detectedLabel}</Text> : null}
             </View>
+            <Pressable onPress={() => remove(item)} accessibilityLabel={`Delete chat with ${item.peer.name}`} hitSlop={10} style={{ alignSelf: 'center', padding: 8 }}>
+              <Text style={{ fontSize: 18 }}>🗑️</Text>
+            </Pressable>
           </Pressable>
         )}
       />

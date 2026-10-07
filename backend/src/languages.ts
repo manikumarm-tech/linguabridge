@@ -64,6 +64,6 @@ export function hasRomanizedVariant(code: string): boolean {
 /** Display label e.g. "Hindi • Hinglish" */
 export function detectionLabel(code: string, romanized: boolean): string {
   const l = getLanguage(code);
-  if (!l) return code;
+  if (!l) return ''; // 'und' (emoji/number-only) or unknown: no label
   return romanized && l.romanizedName ? `${l.name} • ${l.romanizedName}` : l.name;
 }
