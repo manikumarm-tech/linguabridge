@@ -1,9 +1,12 @@
 import { q } from './db.js';
 import { emit } from './hub.js';
 
+/** Everyone who shares a chat or group with me. */
 const partners = async (userId: string) =>
   (await q<{ id: string }>(
-    `SELECT CASE WHEN user_a=$1 THEN user_b ELSE user_a END AS id FROM conversations WHERE user_a=$1 OR user_b=$1`, [userId],
+    `SELECT DISTINCT o.user_id AS id FROM conversation_members mine
+     JOIN conversation_members o ON o.conversation_id=mine.conversation_id AND o.user_id<>$1
+     WHERE mine.user_id=$1`, [userId],
   )).map((r) => r.id);
 
 /** Tell everyone I chat with that I came online / went offline. */
@@ -14,14 +17,13 @@ export async function presenceChanged(userId: string, online: boolean) {
 }
 
 const lastTyping = new Map<string, number>();
-/** Relay "typing…" to the other person in the conversation (at most once a second per user). */
+/** Relay "typing…" to the others in the conversation (at most once a second per user). */
 export async function typing(userId: string, conversationId: unknown) {
   if (typeof conversationId !== 'string' || !/^[0-9a-f-]{36}$/.test(conversationId)) return;
   const now = Date.now();
   if (now - (lastTyping.get(userId) ?? 0) < 1000) return;
   lastTyping.set(userId, now);
-  const [c] = await q<{ peer: string }>(
-    `SELECT CASE WHEN user_a=$2 THEN user_b ELSE user_a END AS peer FROM conversations WHERE id=$1 AND (user_a=$2 OR user_b=$2)`,
-    [conversationId, userId]);
-  if (c) emit([c.peer], 'typing', { conversationId, userId });
+  const members = (await q<{ user_id: string }>(
+    'SELECT user_id FROM conversation_members WHERE conversation_id=$1', [conversationId])).map((r) => r.user_id);
+  if (members.includes(userId)) emit(members.filter((id) => id !== userId), 'typing', { conversationId, userId });
 }

@@ -2,7 +2,7 @@ import { randomInt } from 'node:crypto';
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { q } from '../db.js';
-import { requireAuth, sign } from '../auth.js';
+import { requireAuth, sign, verify } from '../auth.js';
 import { verifyGoogleIdToken } from '../google.js';
 import { emit, isOnline } from '../hub.js';
 import { LANGUAGES, detectionLabel, getLanguage } from '../languages.js';
@@ -18,8 +18,22 @@ interface UserRow {
 }
 interface MsgRow {
   id: string; conversation_id: string; sender_id: string; original_text: string; kind: string;
+  /** 1:1: the recipient's translation. Group: the first member's (detection info); per-member ones live in message_translations. */
   translation: TranslationResult | null; created_at: string;
+  reply_to: string | null; deleted_at: string | null; has_audio: boolean;
 }
+interface Conv {
+  id: string; isGroup: boolean; title: string | null; memberIds: string[];
+  /** everyone but me */
+  otherIds: string[];
+  /** 1:1 only */
+  peerId: string | null;
+}
+
+type AI = {
+  extractText(b64: string, mt: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif'): Promise<string>;
+  transcribe?(b64: string, mimeType: string): Promise<string>;
+};
 
 const wrap = (fn: (req: Request, res: Response) => Promise<unknown>) => (req: Request, res: Response) =>
   fn(req, res).catch((e) => {
@@ -27,6 +41,7 @@ const wrap = (fn: (req: Request, res: Response) => Promise<unknown>) => (req: Re
     console.error(e);
     res.status(e?.status ?? 500).json({ error: e?.message ?? 'server_error' });
   });
+const fail = (status: number, message: string) => Object.assign(new Error(message), { status });
 
 const publicUser = (u: UserRow) => ({
   id: u.id, handle: u.handle, name: u.name, language: u.language, outputFormat: u.output_format,
@@ -39,37 +54,21 @@ const peerUser = (u: UserRow) => ({ ...publicUser(u), online: u.is_bot || isOnli
 /** What I see about myself (adds my Google email; never sent to other people). */
 const selfUser = (u: UserRow) => ({ ...publicUser(u), email: u.email });
 
-export function serializeMessage(m: MsgRow, recipientId: string | null) {
-  const t = m.translation;
-  return {
-    id: m.id,
-    conversationId: m.conversation_id,
-    senderId: m.sender_id,
-    recipientId,
-    kind: m.kind,
-    originalText: m.original_text,
-    createdAt: m.created_at,
-    detected: t && {
-      language: t.detectedLanguage, languageCode: t.detectedLanguageCode, script: t.detectedScript,
-      romanized: t.isRomanized, confidence: t.confidence,
-      label: detectionLabel(t.detectedLanguageCode, t.isRomanized),
-    },
-    translation: t,
-    primaryText: t ? primaryText(t) : m.original_text,
-  };
-}
-
 async function getUser(id: string): Promise<UserRow> {
   const [u] = await q<UserRow>('SELECT * FROM users WHERE id=$1', [id]);
-  if (!u) throw Object.assign(new Error('user_not_found'), { status: 404 });
+  if (!u) throw fail(404, 'user_not_found');
   return u;
 }
+const getUsers = async (ids: string[]) => (ids.length ? q<UserRow>('SELECT * FROM users WHERE id = ANY($1)', [ids]) : []);
 
-async function getConversation(id: string, userId: string) {
-  const [c] = await q<{ id: string; user_a: string; user_b: string }>(
-    'SELECT * FROM conversations WHERE id=$1 AND (user_a=$2 OR user_b=$2)', [id, userId]);
-  if (!c) throw Object.assign(new Error('conversation_not_found'), { status: 404 });
-  return { ...c, peerId: c.user_a === userId ? c.user_b : c.user_a };
+async function getConversation(id: string, userId: string): Promise<Conv> {
+  const [c] = await q<{ id: string; is_group: boolean; title: string | null; members: string[] }>(
+    `SELECT c.id, c.is_group, c.title, array_agg(cm.user_id ORDER BY cm.joined_at) AS members
+     FROM conversations c JOIN conversation_members cm ON cm.conversation_id=c.id
+     WHERE c.id=$1 GROUP BY c.id`, [id]);
+  if (!c || !c.members.includes(userId)) throw fail(404, 'conversation_not_found');
+  const otherIds = c.members.filter((m) => m !== userId);
+  return { id: c.id, isGroup: c.is_group, title: c.title, memberIds: c.members, otherIds, peerId: c.is_group ? null : otherIds[0] ?? null };
 }
 
 async function conversationBetween(me: string, peerId: string) {
@@ -77,7 +76,94 @@ async function conversationBetween(me: string, peerId: string) {
   const [c] = await q<{ id: string }>(
     `INSERT INTO conversations (user_a,user_b) VALUES ($1,$2)
      ON CONFLICT (user_a,user_b) DO UPDATE SET user_a=EXCLUDED.user_a RETURNING id`, [a, b]);
+  await q(`INSERT INTO conversation_members (conversation_id, user_id) VALUES ($1,$2),($1,$3) ON CONFLICT DO NOTHING`, [c.id, a, b]);
   return c.id;
+}
+
+/** People I have a 1:1 chat with (friends + demo contacts): who I may put in a group. */
+const friendIds = async (me: string) =>
+  (await q<{ id: string }>(
+    `SELECT CASE WHEN user_a=$1 THEN user_b ELSE user_a END AS id FROM conversations
+     WHERE NOT is_group AND (user_a=$1 OR user_b=$1)`, [me])).map((r) => r.id);
+
+// ---- message serialization (depends on who is looking) ----------------------
+interface Ctx {
+  tr: Map<string, TranslationResult>;
+  reactions: Map<string, { userId: string; emoji: string }[]>;
+  replies: Map<string, MsgRow>;
+  names: Map<string, string>;
+}
+
+/** Load everything needed to show `rows` to `viewer`: their translations, reactions, reply previews. */
+async function hydrate(rows: MsgRow[], viewer: string): Promise<Ctx> {
+  const ids = rows.map((m) => m.id);
+  const replyIds = [...new Set(rows.map((m) => m.reply_to).filter((x): x is string => !!x))];
+  const [trs, reacts, replies] = await Promise.all([
+    ids.length || replyIds.length
+      ? q<{ message_id: string; translation: TranslationResult }>(
+        'SELECT message_id, translation FROM message_translations WHERE user_id=$1 AND message_id = ANY($2)', [viewer, [...ids, ...replyIds]])
+      : [],
+    ids.length ? q<{ message_id: string; user_id: string; emoji: string }>(
+      'SELECT message_id, user_id, emoji FROM message_reactions WHERE message_id = ANY($1) ORDER BY created_at', [ids]) : [],
+    replyIds.length ? q<MsgRow>('SELECT * FROM messages WHERE id = ANY($1)', [replyIds]) : [],
+  ]);
+  const senderIds = [...new Set(replies.map((r) => r.sender_id))];
+  const names = new Map((await getUsers(senderIds)).map((u) => [u.id, u.name]));
+  const reactions = new Map<string, { userId: string; emoji: string }[]>();
+  for (const r of reacts) reactions.set(r.message_id, [...(reactions.get(r.message_id) ?? []), { userId: r.user_id, emoji: r.emoji }]);
+  return { tr: new Map(trs.map((t) => [t.message_id, t.translation])), reactions, replies: new Map(replies.map((r) => [r.id, r])), names };
+}
+
+/** The translation `viewer` should see for message `m` (none for their own group messages). */
+function viewTranslation(m: MsgRow, viewer: string, ctx: Ctx) {
+  if (m.sender_id === viewer) return m.translation;
+  return ctx.tr.get(m.id) ?? m.translation;
+}
+
+function serialize(m: MsgRow, viewer: string, ctx: Ctx) {
+  const deleted = !!m.deleted_at;
+  const t = deleted ? null : viewTranslation(m, viewer, ctx);
+  const reply = m.reply_to ? ctx.replies.get(m.reply_to) : undefined;
+  let replyTo = null;
+  if (reply && !deleted) {
+    const rt = reply.sender_id === viewer || reply.deleted_at ? null : viewTranslation(reply, viewer, ctx);
+    replyTo = {
+      id: reply.id, senderId: reply.sender_id, senderName: ctx.names.get(reply.sender_id) ?? '',
+      text: reply.deleted_at ? 'Message deleted' : rt ? primaryText(rt) : reply.original_text,
+      kind: reply.kind,
+    };
+  }
+  return {
+    id: m.id,
+    conversationId: m.conversation_id,
+    senderId: m.sender_id,
+    kind: m.kind,
+    originalText: deleted ? '' : m.original_text,
+    createdAt: m.created_at,
+    deleted,
+    detected: t && {
+      language: t.detectedLanguage, languageCode: t.detectedLanguageCode, script: t.detectedScript,
+      romanized: t.isRomanized, confidence: t.confidence,
+      label: detectionLabel(t.detectedLanguageCode, t.isRomanized),
+    },
+    translation: t,
+    primaryText: deleted ? '' : t ? primaryText(t) : m.original_text,
+    audioUrl: m.has_audio && !deleted ? `/api/messages/${m.id}/audio` : null,
+    replyTo,
+    reactions: deleted ? [] : ctx.reactions.get(m.id) ?? [],
+  };
+}
+
+/** Send `event` with message `id` to each member, serialized for that member. */
+async function emitMessage(event: 'message' | 'message_updated', id: string, memberIds: string[]) {
+  const [m] = await q<MsgRow>('SELECT * FROM messages WHERE id=$1', [id]);
+  if (!m) return;
+  await Promise.all(memberIds.map(async (u) => emit([u], event, serialize(m, u, await hydrate([m], u)))));
+}
+
+async function serializeOne(id: string, viewer: string) {
+  const [m] = await q<MsgRow>('SELECT * FROM messages WHERE id=$1', [id]);
+  return serialize(m, viewer, await hydrate([m], viewer));
 }
 
 const CODE_TTL_MIN = 10;
@@ -90,7 +176,10 @@ function tooManyAttempts(userId: string) {
   return recent.length >= 5;
 }
 
-export function buildApi(translator: Translator, ocr?: { extractText(b64: string, mt: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif'): Promise<string> }) {
+const AUDIO_MAX_BYTES = 2_000_000; // ~2 min of opus
+const AUDIO_TYPES = /^audio\/(webm|ogg|mp4|mpeg|aac|m4a|x-m4a|wav|3gpp)(;.*)?$/;
+
+export function buildApi(translator: Translator, ai?: AI) {
   const r = Router();
 
   /** Translate `text` written by `sender` for `recipient`, with recent conversation as context. */
@@ -99,7 +188,7 @@ export function buildApi(translator: Translator, ocr?: { extractText(b64: string
     extra: Partial<TranslateRequest> = {}, modeOverride?: TranslateRequest['mode'],
   ) {
     const recent = await q<MsgRow>(
-      'SELECT * FROM messages WHERE conversation_id=$1 ORDER BY created_at DESC LIMIT 6', [convId]);
+      'SELECT * FROM messages WHERE conversation_id=$1 AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 6', [convId]);
     const context = recent.reverse().map((m) => ({
       from: (m.sender_id === sender.id ? 'me' : 'them') as 'me' | 'them',
       text: m.original_text,
@@ -117,14 +206,44 @@ export function buildApi(translator: Translator, ocr?: { extractText(b64: string
     });
   }
 
-  async function storeAndEmit(conv: { id: string }, sender: UserRow, recipient: UserRow, text: string, kind: string) {
-    const translation = await translateFor(sender, recipient, conv.id, text);
+  /** Translate for every other member (one model call per distinct language/format), store, and deliver. */
+  async function storeAndEmit(
+    conv: Conv, sender: UserRow, text: string, kind: string,
+    opts: { replyTo?: string | null; audio?: { data: Buffer; mimeType: string; durationMs?: number } } = {},
+  ) {
+    const recipients = await getUsers(conv.memberIds.filter((id) => id !== sender.id));
+    const byPrefs = new Map<string, Promise<TranslationResult>>();
+    const perUser = new Map<string, TranslationResult>();
+    await Promise.all(recipients.map(async (u) => {
+      const key = `${u.language}|${u.output_format}|${u.show_english}`;
+      if (!byPrefs.has(key)) byPrefs.set(key, translateFor(sender, u, conv.id, text));
+      perUser.set(u.id, await byPrefs.get(key)!);
+    }));
+    const first = recipients[0] ? perUser.get(recipients[0].id)! : null;
     const [row] = await q<MsgRow>(
-      'INSERT INTO messages (conversation_id, sender_id, original_text, kind, translation) VALUES ($1,$2,$3,$4,$5) RETURNING *',
-      [conv.id, sender.id, text, kind, JSON.stringify(translation)]);
-    const msg = serializeMessage(row, recipient.id);
-    emit([sender.id, recipient.id], 'message', msg);
-    return msg;
+      `INSERT INTO messages (conversation_id, sender_id, original_text, kind, translation, reply_to, has_audio)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      [conv.id, sender.id, text, kind, first && JSON.stringify(first), opts.replyTo ?? null, !!opts.audio]);
+    if (conv.isGroup && perUser.size) {
+      const users = [...perUser.keys()];
+      await q(
+        `INSERT INTO message_translations (message_id, user_id, translation)
+         SELECT $1, u, t FROM unnest($2::uuid[], $3::jsonb[]) AS x(u, t)`,
+        [row.id, users, users.map((u) => JSON.stringify(perUser.get(u)))]);
+    }
+    if (opts.audio) {
+      await q('INSERT INTO message_audio (message_id, mime_type, duration_ms, data) VALUES ($1,$2,$3,$4)',
+        [row.id, opts.audio.mimeType, opts.audio.durationMs ?? null, opts.audio.data]);
+    }
+    await emitMessage('message', row.id, conv.memberIds);
+    return serializeOne(row.id, sender.id);
+  }
+
+  async function checkReply(conv: Conv, replyTo?: string | null) {
+    if (!replyTo) return null;
+    const [m] = await q<{ id: string }>('SELECT id FROM messages WHERE id=$1 AND conversation_id=$2', [replyTo, conv.id]);
+    if (!m) throw fail(400, 'reply_not_found');
+    return m.id;
   }
 
   // ---- meta -------------------------------------------------------------
@@ -229,30 +348,48 @@ export function buildApi(translator: Translator, ocr?: { extractText(b64: string
   r.get('/conversations', requireAuth, wrap(async (_req, res) => {
     const me = res.locals.userId as string;
     const rows = await q<any>(
-      `SELECT c.id, u.id AS peer_id, u.handle, u.name, u.language, u.avatar_url, u.last_seen_at, u.is_bot,
-              m.original_text AS last_text, m.created_at AS last_at, m.translation AS last_translation, m.sender_id AS last_sender,
-              (SELECT count(*) FROM messages mm WHERE mm.conversation_id=c.id AND mm.sender_id<>$1
+      `SELECT c.id, c.is_group, c.title,
+              (SELECT count(*) FROM conversation_members x WHERE x.conversation_id=c.id)::int AS member_count,
+              p.id AS peer_id, p.handle, p.name, p.language, p.avatar_url, p.last_seen_at, p.is_bot,
+              m.id AS last_id, m.original_text AS last_text, m.created_at AS last_at, m.sender_id AS last_sender,
+              m.kind AS last_kind, m.deleted_at AS last_deleted, COALESCE(mt.translation, m.translation) AS last_translation,
+              su.name AS last_sender_name,
+              (SELECT count(*) FROM messages mm WHERE mm.conversation_id=c.id AND mm.sender_id<>$1 AND mm.deleted_at IS NULL
                  AND mm.created_at > GREATEST(COALESCE(cr.last_read_at,'-infinity'), COALESCE(cc.cleared_at,'-infinity')))::int AS unread
-       FROM conversations c
-       JOIN users u ON u.id = CASE WHEN c.user_a=$1 THEN c.user_b ELSE c.user_a END
+       FROM conversation_members mine
+       JOIN conversations c ON c.id = mine.conversation_id
+       LEFT JOIN LATERAL (SELECT u.* FROM conversation_members om JOIN users u ON u.id=om.user_id
+                          WHERE om.conversation_id=c.id AND om.user_id<>$1 LIMIT 1) p ON NOT c.is_group
        LEFT JOIN conversation_clears cc ON cc.conversation_id=c.id AND cc.user_id=$1
        LEFT JOIN conversation_reads cr ON cr.conversation_id=c.id AND cr.user_id=$1
        LEFT JOIN LATERAL (SELECT * FROM messages WHERE conversation_id=c.id AND created_at > COALESCE(cc.cleared_at, '-infinity')
                           ORDER BY created_at DESC LIMIT 1) m ON true
-       WHERE (c.user_a=$1 OR c.user_b=$1) AND (cc.cleared_at IS NULL OR m.id IS NOT NULL)
+       LEFT JOIN message_translations mt ON mt.message_id=m.id AND mt.user_id=$1
+       LEFT JOIN users su ON su.id=m.sender_id
+       WHERE mine.user_id=$1 AND (cc.cleared_at IS NULL OR m.id IS NOT NULL OR c.is_group)
        ORDER BY COALESCE(m.created_at, c.created_at) DESC`, [me]);
     res.json(rows.map((x) => {
       const t = x.last_translation as TranslationResult | null;
+      const mine = x.last_sender === me;
+      let last: string | null = null;
+      if (x.last_id) {
+        last = x.last_deleted ? '🚫 Message deleted' : t && !mine ? primaryText(t) : x.last_text;
+        if (!x.last_deleted && x.last_kind === 'voice') last = `🎤 ${last}`;
+        if (x.is_group) last = `${mine ? 'You' : String(x.last_sender_name ?? '').split(' ')[0]}: ${last}`;
+      }
       return {
         id: x.id,
-        peer: {
+        isGroup: x.is_group,
+        title: x.is_group ? x.title : x.name,
+        memberCount: x.member_count,
+        peer: x.is_group ? null : {
           id: x.peer_id, handle: x.handle, name: x.name, language: x.language, avatarUrl: x.avatar_url,
           online: x.is_bot || isOnline(x.peer_id), lastSeenAt: x.last_seen_at,
         },
         unread: x.unread,
-        lastMessage: t && x.last_sender !== me ? primaryText(t) : x.last_text,
+        lastMessage: last,
         lastAt: x.last_at,
-        detectedLabel: t ? detectionLabel(t.detectedLanguageCode, t.isRomanized) : null,
+        detectedLabel: t && !x.last_deleted ? detectionLabel(t.detectedLanguageCode, t.isRomanized) : null,
       };
     }));
   }));
@@ -263,13 +400,63 @@ export function buildApi(translator: Translator, ocr?: { extractText(b64: string
     const [peer] = await q<UserRow>('SELECT * FROM users WHERE handle=$1', [peerHandle.toLowerCase()]);
     if (!peer) return res.status(404).json({ error: 'user_not_found' });
     if (peer.id === me) return res.status(400).json({ error: 'cannot_chat_with_self' });
-    if (!peer.is_bot) {
+    if (!peer.is_bot && !(await friendIds(me)).includes(peer.id)) {
       // real people only through a connect code (or a chat you already have)
-      const [a, b] = me < peer.id ? [me, peer.id] : [peer.id, me];
-      const [existing] = await q('SELECT 1 FROM conversations WHERE user_a=$1 AND user_b=$2', [a, b]);
-      if (!existing) return res.status(404).json({ error: 'user_not_found' });
+      return res.status(404).json({ error: 'user_not_found' });
     }
     res.json({ id: await conversationBetween(me, peer.id), peer: publicUser(peer) });
+  }));
+
+  // ---- groups -------------------------------------------------------------
+  /** People I can add to a group. */
+  r.get('/friends', requireAuth, wrap(async (_req, res) => {
+    const users = await getUsers(await friendIds(res.locals.userId));
+    res.json(users.map(peerUser).sort((a, b) => Number(a.isBot) - Number(b.isBot) || a.name.localeCompare(b.name)));
+  }));
+
+  const memberList = z.array(z.string().uuid()).min(1).max(50);
+  async function checkFriends(me: string, ids: string[]) {
+    const friends = new Set(await friendIds(me));
+    if (ids.some((id) => !friends.has(id))) throw fail(400, 'not_a_friend');
+  }
+
+  r.post('/groups', requireAuth, wrap(async (req, res) => {
+    const me = res.locals.userId as string;
+    const { title, memberIds } = z.object({ title: z.string().trim().min(1).max(60), memberIds: memberList }).parse(req.body);
+    const ids = [...new Set(memberIds)].filter((id) => id !== me);
+    await checkFriends(me, ids);
+    const [c] = await q<{ id: string }>('INSERT INTO conversations (is_group, title, created_by) VALUES (true,$1,$2) RETURNING id', [title, me]);
+    await q('INSERT INTO conversation_members (conversation_id, user_id) SELECT $1, unnest($2::uuid[])', [c.id, [me, ...ids]]);
+    emit(ids, 'group_added', { id: c.id, title });
+    res.json({ id: c.id, title });
+  }));
+
+  r.get('/groups/:id', requireAuth, wrap(async (req, res) => {
+    const conv = await getConversation(req.params.id, res.locals.userId);
+    if (!conv.isGroup) throw fail(400, 'not_a_group');
+    res.json({ id: conv.id, title: conv.title, members: (await getUsers(conv.memberIds)).map(peerUser) });
+  }));
+
+  r.post('/groups/:id/members', requireAuth, wrap(async (req, res) => {
+    const me = res.locals.userId as string;
+    const conv = await getConversation(req.params.id, me);
+    if (!conv.isGroup) throw fail(400, 'not_a_group');
+    const { memberIds } = z.object({ memberIds: memberList }).parse(req.body);
+    const ids = [...new Set(memberIds)].filter((id) => !conv.memberIds.includes(id));
+    await checkFriends(me, ids);
+    if (ids.length) await q('INSERT INTO conversation_members (conversation_id, user_id) SELECT $1, unnest($2::uuid[]) ON CONFLICT DO NOTHING', [conv.id, ids]);
+    emit(ids, 'group_added', { id: conv.id, title: conv.title });
+    emit(conv.memberIds, 'group_updated', { id: conv.id });
+    res.json({ ok: true, added: ids.length });
+  }));
+
+  r.post('/groups/:id/leave', requireAuth, wrap(async (req, res) => {
+    const me = res.locals.userId as string;
+    const conv = await getConversation(req.params.id, me);
+    if (!conv.isGroup) throw fail(400, 'not_a_group');
+    await q('DELETE FROM conversation_members WHERE conversation_id=$1 AND user_id=$2', [conv.id, me]);
+    emit(conv.otherIds, 'group_updated', { id: conv.id });
+    res.json({ ok: true });
   }));
 
   // ---- add friend by code ------------------------------------------------
@@ -315,30 +502,44 @@ export function buildApi(translator: Translator, ocr?: { extractText(b64: string
     res.json({ id, peer: publicUser(friend) });
   }));
 
+  // ---- a conversation -----------------------------------------------------
   r.get('/conversations/:id/messages', requireAuth, wrap(async (req, res) => {
-    const conv = await getConversation(req.params.id, res.locals.userId);
+    const me = res.locals.userId as string;
+    const conv = await getConversation(req.params.id, me);
     const rows = await q<MsgRow>(
       `SELECT m.* FROM messages m
        LEFT JOIN conversation_clears cc ON cc.conversation_id=m.conversation_id AND cc.user_id=$2
        WHERE m.conversation_id=$1 AND m.created_at > COALESCE(cc.cleared_at, '-infinity')
-       ORDER BY m.created_at ASC LIMIT 500`, [conv.id, res.locals.userId]);
-    const peer = peerUser(await getUser(conv.peerId));
-    const [read] = await q<{ last_read_at: string }>(
-      'SELECT last_read_at FROM conversation_reads WHERE conversation_id=$1 AND user_id=$2', [conv.id, conv.peerId]);
+       ORDER BY m.created_at ASC LIMIT 500`, [conv.id, me]);
+    const [members, reads, ctx] = await Promise.all([
+      getUsers(conv.memberIds),
+      q<{ user_id: string; last_read_at: string }>(
+        'SELECT user_id, last_read_at FROM conversation_reads WHERE conversation_id=$1 AND user_id = ANY($2)', [conv.id, conv.otherIds]),
+      hydrate(rows, me),
+    ]);
+    const readsBy = Object.fromEntries(reads.map((x) => [x.user_id, x.last_read_at]));
+    // everyone else has read up to this point (✓✓)
+    const allRead = conv.otherIds.length && conv.otherIds.every((id) => readsBy[id])
+      ? conv.otherIds.map((id) => readsBy[id]).sort()[0] : null;
+    const peer = conv.peerId ? members.find((u) => u.id === conv.peerId) : undefined;
     res.json({
-      peerLastReadAt: read?.last_read_at ?? null,
-      peer,
-      messages: rows.map((m) => serializeMessage(m, m.sender_id === res.locals.userId ? conv.peerId : res.locals.userId)),
+      isGroup: conv.isGroup,
+      title: conv.isGroup ? conv.title : peer?.name,
+      peer: peer ? peerUser(peer) : null,
+      members: members.map(peerUser),
+      reads: readsBy,
+      peerLastReadAt: allRead,
+      messages: rows.map((m) => serialize(m, me, ctx)),
     });
   }));
 
-  /** I've seen everything in this chat up to now; tells the other person (read receipts). */
+  /** I've seen everything in this chat up to now; tells the others (read receipts). */
   r.post('/conversations/:id/read', requireAuth, wrap(async (req, res) => {
     const conv = await getConversation(req.params.id, res.locals.userId);
     const [row] = await q<{ last_read_at: string }>(
       `INSERT INTO conversation_reads (conversation_id, user_id) VALUES ($1,$2)
        ON CONFLICT (conversation_id, user_id) DO UPDATE SET last_read_at=now() RETURNING last_read_at`, [conv.id, res.locals.userId]);
-    emit([conv.peerId], 'read', { conversationId: conv.id, userId: res.locals.userId, at: row.last_read_at });
+    emit(conv.otherIds, 'read', { conversationId: conv.id, userId: res.locals.userId, at: row.last_read_at });
     res.json({ at: row.last_read_at });
   }));
 
@@ -353,19 +554,94 @@ export function buildApi(translator: Translator, ocr?: { extractText(b64: string
 
   // ---- messaging --------------------------------------------------------
   r.post('/conversations/:id/messages', requireAuth, wrap(async (req, res) => {
-    const { text, kind } = z.object({ text: z.string().trim().min(1).max(4000), kind: z.enum(['text', 'voice']).default('text') }).parse(req.body);
+    const { text, kind, replyTo } = z.object({
+      text: z.string().trim().min(1).max(4000),
+      kind: z.enum(['text', 'voice']).default('text'),
+      replyTo: z.string().uuid().nullish(),
+    }).parse(req.body);
     const conv = await getConversation(req.params.id, res.locals.userId);
-    const [sender, recipient] = await Promise.all([getUser(res.locals.userId), getUser(conv.peerId)]);
-    const msg = await storeAndEmit(conv, sender, recipient, text, kind);
+    const sender = await getUser(res.locals.userId);
+    const msg = await storeAndEmit(conv, sender, text, kind, { replyTo: await checkReply(conv, replyTo) });
     res.json(msg);
-    if (recipient.is_bot) void botReply(conv, recipient, sender);
+    void botReply(conv, sender);
   }));
 
-  /** Composer preview: detect + translate for the other person without sending. */
+  /** Voice message: keep the recording, transcribe it, then translate like typed text. */
+  r.post('/conversations/:id/voice', requireAuth, wrap(async (req, res) => {
+    if (!ai?.transcribe) return res.status(501).json({ error: 'voice_not_configured' });
+    const { audioBase64, mimeType, durationMs, replyTo } = z.object({
+      audioBase64: z.string().min(100).max(Math.ceil(AUDIO_MAX_BYTES * 4 / 3) + 4),
+      mimeType: z.string().regex(AUDIO_TYPES),
+      durationMs: z.number().int().positive().max(5 * 60_000).optional(),
+      replyTo: z.string().uuid().nullish(),
+    }).parse(req.body);
+    const conv = await getConversation(req.params.id, res.locals.userId);
+    const sender = await getUser(res.locals.userId);
+    const text = await ai.transcribe(audioBase64, mimeType);
+    if (!text) return res.status(422).json({ error: 'no_speech' });
+    const msg = await storeAndEmit(conv, sender, text.slice(0, 4000), 'voice', {
+      replyTo: await checkReply(conv, replyTo),
+      audio: { data: Buffer.from(audioBase64, 'base64'), mimeType, durationMs },
+    });
+    res.json(msg);
+    void botReply(conv, sender);
+  }));
+
+  /** The recording. <audio> can't send headers, so the token may come as ?token=. */
+  r.get('/messages/:id/audio', wrap(async (req, res) => {
+    const header = req.headers.authorization?.replace(/^Bearer /, '');
+    const userId = verify(header || String(req.query.token ?? ''));
+    if (!userId) return res.status(401).json({ error: 'unauthorized' });
+    const [a] = await q<{ conversation_id: string; mime_type: string; data: Buffer }>(
+      `SELECT m.conversation_id, a.mime_type, a.data FROM message_audio a JOIN messages m ON m.id=a.message_id
+       WHERE a.message_id=$1 AND m.deleted_at IS NULL`, [req.params.id]);
+    if (!a) return res.status(404).json({ error: 'not_found' });
+    await getConversation(a.conversation_id, userId);
+    res.setHeader('Content-Type', a.mime_type.split(';')[0]);
+    res.setHeader('Cache-Control', 'private, max-age=86400');
+    res.send(a.data);
+  }));
+
+  /** One reaction per person per message; same emoji again (or null) removes it. */
+  r.post('/messages/:id/react', requireAuth, wrap(async (req, res) => {
+    const me = res.locals.userId as string;
+    const { emoji } = z.object({ emoji: z.string().min(1).max(16).nullable() }).parse(req.body);
+    const [m] = await q<MsgRow>('SELECT * FROM messages WHERE id=$1 AND deleted_at IS NULL', [req.params.id]);
+    if (!m) return res.status(404).json({ error: 'message_not_found' });
+    const conv = await getConversation(m.conversation_id, me);
+    const [existing] = await q<{ emoji: string }>('SELECT emoji FROM message_reactions WHERE message_id=$1 AND user_id=$2', [m.id, me]);
+    if (!emoji || existing?.emoji === emoji) await q('DELETE FROM message_reactions WHERE message_id=$1 AND user_id=$2', [m.id, me]);
+    else {
+      await q(`INSERT INTO message_reactions (message_id, user_id, emoji) VALUES ($1,$2,$3)
+               ON CONFLICT (message_id, user_id) DO UPDATE SET emoji=EXCLUDED.emoji, created_at=now()`, [m.id, me, emoji]);
+    }
+    await emitMessage('message_updated', m.id, conv.memberIds);
+    res.json(await serializeOne(m.id, me));
+  }));
+
+  /** Delete for everyone (sender only). The text, translations and recording are wiped. */
+  r.delete('/messages/:id', requireAuth, wrap(async (req, res) => {
+    const me = res.locals.userId as string;
+    const [m] = await q<MsgRow>('SELECT * FROM messages WHERE id=$1', [req.params.id]);
+    if (!m) return res.status(404).json({ error: 'message_not_found' });
+    const conv = await getConversation(m.conversation_id, me);
+    if (m.sender_id !== me) return res.status(403).json({ error: 'not_your_message' });
+    await q(`UPDATE messages SET deleted_at=now(), original_text='', translation=NULL, has_audio=false WHERE id=$1`, [m.id]);
+    await Promise.all([
+      q('DELETE FROM message_translations WHERE message_id=$1', [m.id]),
+      q('DELETE FROM message_reactions WHERE message_id=$1', [m.id]),
+      q('DELETE FROM message_audio WHERE message_id=$1', [m.id]),
+    ]);
+    await emitMessage('message_updated', m.id, conv.memberIds);
+    res.json(await serializeOne(m.id, me));
+  }));
+
+  /** Composer preview: detect + translate for the other person (first other member in a group) without sending. */
   r.post('/conversations/:id/preview', requireAuth, wrap(async (req, res) => {
     const { text, mode } = z.object({ text: z.string().trim().min(1).max(4000), mode: prefs.translationMode.optional() }).parse(req.body);
     const conv = await getConversation(req.params.id, res.locals.userId);
-    const [sender, recipient] = await Promise.all([getUser(res.locals.userId), getUser(conv.peerId)]);
+    if (!conv.otherIds.length) throw fail(400, 'no_one_else_here');
+    const [sender, recipient] = await Promise.all([getUser(res.locals.userId), getUser(conv.otherIds[0])]);
     const t = await translateFor(sender, recipient, conv.id, text, {}, mode);
     res.json({
       detected: { language: t.detectedLanguage, languageCode: t.detectedLanguageCode, script: t.detectedScript, romanized: t.isRomanized, confidence: t.confidence, label: detectionLabel(t.detectedLanguageCode, t.isRomanized) },
@@ -375,23 +651,33 @@ export function buildApi(translator: Translator, ocr?: { extractText(b64: string
     });
   }));
 
+  /** "Translate again": a fresh rendering for the person asking (or, in a 1:1, for the recipient of my own message). */
   r.post('/messages/:id/retranslate', requireAuth, wrap(async (req, res) => {
+    const me = res.locals.userId as string;
     const { mode } = z.object({ mode: prefs.translationMode.optional() }).parse(req.body ?? {});
-    const [m] = await q<MsgRow>('SELECT * FROM messages WHERE id=$1', [req.params.id]);
+    const [m] = await q<MsgRow>('SELECT * FROM messages WHERE id=$1 AND deleted_at IS NULL', [req.params.id]);
     if (!m) return res.status(404).json({ error: 'message_not_found' });
-    const conv = await getConversation(m.conversation_id, res.locals.userId);
-    const [sender, recipient] = await Promise.all([getUser(m.sender_id), getUser(m.sender_id === conv.user_a ? conv.user_b : conv.user_a)]);
-    const t = await translateFor(sender, recipient, conv.id, m.original_text,
-      m.translation ? { regenerate: { previous: primaryText(m.translation) } } : {}, mode);
-    const [row] = await q<MsgRow>('UPDATE messages SET translation=$1 WHERE id=$2 RETURNING *', [JSON.stringify(t), m.id]);
-    const msg = serializeMessage(row, recipient.id);
-    emit([sender.id, recipient.id], 'message_updated', msg);
-    res.json(msg);
+    const conv = await getConversation(m.conversation_id, me);
+    const targetId = m.sender_id !== me ? me : conv.peerId;
+    if (!targetId) throw fail(400, 'nothing_to_retranslate');
+    const [sender, target] = await Promise.all([getUser(m.sender_id), getUser(targetId)]);
+    const ctx = await hydrate([m], target.id);
+    const previous = viewTranslation(m, target.id, ctx);
+    const t = await translateFor(sender, target, conv.id, m.original_text, previous ? { regenerate: { previous: primaryText(previous) } } : {}, mode);
+    if (conv.isGroup) {
+      await q(`INSERT INTO message_translations (message_id, user_id, translation) VALUES ($1,$2,$3)
+               ON CONFLICT (message_id, user_id) DO UPDATE SET translation=EXCLUDED.translation`, [m.id, target.id, JSON.stringify(t)]);
+      await emitMessage('message_updated', m.id, [target.id]);
+    } else {
+      await q('UPDATE messages SET translation=$1 WHERE id=$2', [JSON.stringify(t), m.id]);
+      await emitMessage('message_updated', m.id, conv.memberIds);
+    }
+    res.json(await serializeOne(m.id, me));
   }));
 
-  // ---- voice ------------------------------------------------------------
+  // ---- voice / photo helpers -------------------------------------------
   /**
-   * Server-side STT fallback. The mobile app transcribes on-device by default;
+   * Server-side STT fallback for dictation. The app transcribes on-device by default;
    * this exists for devices without speech recognition. Requires OPENAI_API_KEY (Whisper).
    */
   r.post('/voice/transcribe', requireAuth, wrap(async (req, res) => {
@@ -409,28 +695,35 @@ export function buildApi(translator: Translator, ocr?: { extractText(b64: string
 
   /** Photo -> text. The app drops the result into the composer so the user can review it before sending. */
   r.post('/vision/extract-text', requireAuth, wrap(async (req, res) => {
-    if (!ocr) return res.status(501).json({ error: 'vision_not_configured' });
+    if (!ai) return res.status(501).json({ error: 'vision_not_configured' });
     const { imageBase64, mimeType } = z.object({
       imageBase64: z.string().max(14_000_000),
       mimeType: z.enum(['image/jpeg', 'image/png', 'image/webp', 'image/gif']).default('image/jpeg'),
     }).parse(req.body);
-    res.json({ text: await ocr.extractText(imageBase64, mimeType) });
+    res.json({ text: await ai.extractText(imageBase64, mimeType) });
   }));
 
   // ---- demo bots --------------------------------------------------------
-  async function botReply(conv: { id: string }, bot: UserRow, human: UserRow) {
-    const def = BOTS.find((b) => b.handle === bot.handle);
+  /** A demo contact in the chat (1:1, or one of them in a group) reads, types, then replies. */
+  async function botReply(conv: Conv, human: UserRow) {
+    if (human.is_bot) return;
+    const bots = (await getUsers(conv.otherIds)).filter((u) => u.is_bot);
+    const bot = bots[Math.floor(Math.random() * bots.length)];
+    const def = bot && BOTS.find((b) => b.handle === bot.handle);
     if (!def) return;
     try {
       await new Promise((r2) => setTimeout(r2, 600));
-      const [row] = await q<{ last_read_at: string }>(
-        `INSERT INTO conversation_reads (conversation_id, user_id) VALUES ($1,$2)
-         ON CONFLICT (conversation_id, user_id) DO UPDATE SET last_read_at=now() RETURNING last_read_at`, [conv.id, bot.id]);
-      emit([human.id], 'read', { conversationId: conv.id, userId: bot.id, at: row.last_read_at });
-      emit([human.id], 'typing', { conversationId: conv.id, userId: bot.id });
+      const humans = conv.memberIds.filter((id) => !bots.some((b) => b.id === id));
+      for (const b of bots) { // every demo contact in the chat reads it
+        const [row] = await q<{ last_read_at: string }>(
+          `INSERT INTO conversation_reads (conversation_id, user_id) VALUES ($1,$2)
+           ON CONFLICT (conversation_id, user_id) DO UPDATE SET last_read_at=now() RETURNING last_read_at`, [conv.id, b.id]);
+        emit(humans, 'read', { conversationId: conv.id, userId: b.id, at: row.last_read_at });
+      }
+      emit(humans, 'typing', { conversationId: conv.id, userId: bot.id });
       await new Promise((r2) => setTimeout(r2, 1500));
       const text = def.replies[Math.floor(Math.random() * def.replies.length)];
-      await storeAndEmit(conv, bot, human, text, 'text');
+      await storeAndEmit(conv, bot, text, 'text');
     } catch (e) {
       console.error('bot reply failed', e);
     }

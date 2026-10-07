@@ -47,7 +47,7 @@ export function Home({ navigation }: NativeStackScreenProps<RootStack, 'Home'>) 
   }, []);
 
   const remove = async (item: ConversationItem) => {
-    if (!(await confirmDeleteChat(item.peer.name))) return;
+    if (!(await confirmDeleteChat(item.title))) return;
     setItems((xs) => xs.filter((x) => x.id !== item.id));
     try { await api.deleteConversation(item.id); } catch { load(); }
   };
@@ -55,10 +55,10 @@ export function Home({ navigation }: NativeStackScreenProps<RootStack, 'Home'>) 
   useFocusEffect(useCallback(() => { load(); }, [load]));
   useEffect(() => connectSocket((e, data) => {
     if (e === 'message' && data.senderId !== me.id) {
-      const from = itemsRef.current.find((x) => x.id === data.conversationId)?.peer.name ?? 'New message';
+      const from = itemsRef.current.find((x) => x.id === data.conversationId)?.title ?? 'New message';
       showMessageNotification(from, data.primaryText);
     }
-    if (e === 'message' || e === 'connected' || e === 'read' || e === 'presence') load(true);
+    if (['message', 'message_updated', 'connected', 'read', 'presence', 'group_added', 'group_updated'].includes(e)) load(true);
   }), [load, me.id]);
 
   return (
@@ -71,20 +71,25 @@ export function Home({ navigation }: NativeStackScreenProps<RootStack, 'Home'>) 
         <Pressable onPress={() => navigation.navigate('Settings')} hitSlop={10}><Text style={{ fontSize: 26 }}>⚙️</Text></Pressable>
       </View>
 
-      <Pressable onPress={() => navigation.navigate('NewConversation')} style={{ margin: 20, backgroundColor: t.primary, padding: 16, borderRadius: radius.md, alignItems: 'center' }}>
-        <Text style={{ color: t.onPrimary, fontSize: 16, fontWeight: '700' }}>+  Add friend</Text>
-      </Pressable>
+      <View style={{ flexDirection: 'row', gap: 10, margin: 20 }}>
+        <Pressable onPress={() => navigation.navigate('NewConversation')} style={{ flex: 1, backgroundColor: t.primary, padding: 16, borderRadius: radius.md, alignItems: 'center' }}>
+          <Text style={{ color: t.onPrimary, fontSize: 16, fontWeight: '700' }}>+  Add friend</Text>
+        </Pressable>
+        <Pressable onPress={() => navigation.navigate('NewGroup')} style={{ flex: 1, backgroundColor: t.chip, padding: 16, borderRadius: radius.md, alignItems: 'center' }}>
+          <Text style={{ color: t.primary, fontSize: 16, fontWeight: '700' }}>👥  New group</Text>
+        </Pressable>
+      </View>
 
       <FlatList
         data={items} keyExtractor={(i) => i.id}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load()} />}
         ListEmptyComponent={<Text style={{ color: t.sub, textAlign: 'center', marginTop: 40, paddingHorizontal: 32 }}>No chats yet. Tap Add friend and share your code, or try a demo contact.</Text>}
         renderItem={({ item }) => (
-          <Pressable onPress={() => navigation.navigate('Chat', { conversationId: item.id, peerName: item.peer.name })} onLongPress={() => remove(item)} delayLongPress={400} style={{ flexDirection: 'row', gap: 12, paddingHorizontal: 20, paddingVertical: 14, borderBottomColor: t.border, borderBottomWidth: 1 }}>
-            <Avatar name={item.peer.name} url={item.peer.avatarUrl} online={item.peer.online} />
+          <Pressable onPress={() => navigation.navigate('Chat', { conversationId: item.id, peerName: item.title })} onLongPress={() => remove(item)} delayLongPress={400} style={{ flexDirection: 'row', gap: 12, paddingHorizontal: 20, paddingVertical: 14, borderBottomColor: t.border, borderBottomWidth: 1 }}>
+            <Avatar name={item.isGroup ? '👥' : item.title} url={item.peer?.avatarUrl} online={item.peer?.online} />
             <View style={{ flex: 1 }}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                <Text style={{ color: t.text, fontSize: 17, fontWeight: '700' }}>{item.peer.name}</Text>
+                <Text numberOfLines={1} style={{ flexShrink: 1, color: t.text, fontSize: 17, fontWeight: '700' }}>{item.title}{item.isGroup ? <Text style={{ color: t.sub, fontSize: 13, fontWeight: '400' }}>{`  · ${item.memberCount}`}</Text> : null}</Text>
                 <Text style={{ color: item.unread ? t.primary : t.sub, fontSize: 12, fontWeight: item.unread ? '700' : '400' }}>{formatTime(item.lastAt)}</Text>
               </View>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2 }}>
@@ -97,7 +102,7 @@ export function Home({ navigation }: NativeStackScreenProps<RootStack, 'Home'>) 
               </View>
               {item.detectedLabel ? <Text style={{ color: t.primary, fontSize: 12, marginTop: 3 }}>{item.detectedLabel}</Text> : null}
             </View>
-            <Pressable onPress={() => remove(item)} accessibilityLabel={`Delete chat with ${item.peer.name}`} hitSlop={10} style={{ alignSelf: 'center', padding: 8 }}>
+            <Pressable onPress={() => remove(item)} accessibilityLabel={`Delete chat with ${item.title}`} hitSlop={10} style={{ alignSelf: 'center', padding: 8 }}>
               <Text style={{ fontSize: 18 }}>🗑️</Text>
             </Pressable>
           </Pressable>

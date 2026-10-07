@@ -32,6 +32,16 @@ export class GeminiLLM implements LLM {
     return call.args as RawLLMResult;
   }
 
+  /** Speech -> text in the language and script it was spoken in (voice messages). */
+  async transcribe(base64: string, mimeType: string): Promise<string> {
+    const parts = await this.call({
+      systemInstruction: { parts: [{ text: 'Transcribe the speech exactly as spoken, in the language it was spoken. For Indian languages spoken casually, write it the way people text it (e.g. Tanglish/Hinglish in Latin letters) unless it is clearly formal. Output only the transcript. If there is no speech, output an empty string.' }] },
+      contents: [{ role: 'user', parts: [{ inlineData: { mimeType: mimeType.split(';')[0], data: base64 } }, { text: 'Transcribe this voice message.' }] }],
+      generationConfig: { temperature: 0, maxOutputTokens: 1024 },
+    });
+    return parts.map((p: any) => p.text ?? '').join('').trim();
+  }
+
   async extractText(base64: string, mediaType: MediaType): Promise<string> {
     const parts = await this.call({
       systemInstruction: { parts: [{ text: 'Transcribe all readable text in the image exactly as written, in its original language and script. Output only the transcription, nothing else. If there is no text, output an empty string.' }] },

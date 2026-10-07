@@ -65,3 +65,47 @@ CREATE TABLE IF NOT EXISTS conversation_reads (
   last_read_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (conversation_id, user_id)
 );
+
+-- groups: every chat has a member list (1:1 chats keep user_a/user_b for uniqueness)
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS is_group boolean NOT NULL DEFAULT false;
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS title text;
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS created_by uuid REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE conversations ALTER COLUMN user_a DROP NOT NULL;
+ALTER TABLE conversations ALTER COLUMN user_b DROP NOT NULL;
+CREATE TABLE IF NOT EXISTS conversation_members (
+  conversation_id uuid NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  joined_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (conversation_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS conversation_members_user_idx ON conversation_members (user_id);
+INSERT INTO conversation_members (conversation_id, user_id)
+  SELECT id, user_a FROM conversations WHERE user_a IS NOT NULL
+  UNION SELECT id, user_b FROM conversations WHERE user_b IS NOT NULL
+  ON CONFLICT DO NOTHING;
+
+-- per-recipient translations (group chats: one per member)
+CREATE TABLE IF NOT EXISTS message_translations (
+  message_id uuid NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  translation jsonb NOT NULL,
+  PRIMARY KEY (message_id, user_id)
+);
+
+-- replies, delete for everyone, reactions, voice messages
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS reply_to uuid REFERENCES messages(id) ON DELETE SET NULL;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS deleted_at timestamptz;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS has_audio boolean NOT NULL DEFAULT false;
+CREATE TABLE IF NOT EXISTS message_reactions (
+  message_id uuid NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  emoji text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (message_id, user_id)
+);
+CREATE TABLE IF NOT EXISTS message_audio (
+  message_id uuid PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+  mime_type text NOT NULL,
+  duration_ms integer,
+  data bytea NOT NULL
+);

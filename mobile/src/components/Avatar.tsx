@@ -13,7 +13,7 @@ export function Avatar({ name, url, online, size = 48 }: { name: string; url?: s
         <Image source={{ uri: url }} onError={() => setBroken(true)} style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: t.chip }} />
       ) : (
         <View style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: t.chip, alignItems: 'center', justifyContent: 'center' }}>
-          <Text style={{ color: t.primary, fontSize: size * 0.42, fontWeight: '700' }}>{name.slice(0, 1).toUpperCase()}</Text>
+          <Text style={{ color: t.primary, fontSize: size * 0.42, fontWeight: '700' }}>{(Array.from(name)[0] ?? '?').toUpperCase()}</Text>
         </View>
       )}
       {online ? (

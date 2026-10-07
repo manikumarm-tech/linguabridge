@@ -21,17 +21,32 @@ export interface TranslationResult {
 export interface Detected { language: string; languageCode: string; script: string; romanized: boolean; confidence: number; label: string }
 
 export interface Message {
-  id: string; conversationId: string; senderId: string; recipientId: string | null; kind: 'text' | 'voice';
+  id: string; conversationId: string; senderId: string; kind: 'text' | 'voice';
   originalText: string; createdAt: string; detected: Detected | null; translation: TranslationResult | null; primaryText: string;
+  deleted: boolean;
+  /** voice messages: path of the recording on the server */
+  audioUrl: string | null;
+  replyTo: { id: string; senderId: string; senderName: string; text: string; kind: string } | null;
+  reactions: { userId: string; emoji: string }[];
 }
 
 export interface ConversationItem {
-  id: string;
-  peer: { id: string; handle: string; name: string; language: string; avatarUrl: string | null; online: boolean; lastSeenAt: string | null };
+  id: string; isGroup: boolean; title: string; memberCount: number;
+  /** 1:1 chats only */
+  peer: { id: string; handle: string; name: string; language: string; avatarUrl: string | null; online: boolean; lastSeenAt: string | null } | null;
   lastMessage: string | null; lastAt: string | null; detectedLabel: string | null; unread: number;
 }
 
 export interface Preview {
   detected: Detected; translateTo: { languageCode: string; label: string };
   translation: TranslationResult; primaryText: string;
+}
+
+export interface ChatData {
+  isGroup: boolean; title: string; peer: User | null; members: User[];
+  /** userId -> when they last read this chat */
+  reads: Record<string, string>;
+  /** everyone else has read up to here */
+  peerLastReadAt: string | null;
+  messages: Message[];
 }

@@ -1,6 +1,6 @@
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
-import type { ConversationItem, Message, Preview, TranslationMode, User } from '../types';
+import type { ChatData, ConversationItem, Message, Preview, TranslationMode, User } from '../types';
 
 // the deployed website is served by the API itself, so on web use the page's own origin (except the :8081 dev server)
 const webOrigin = Platform.OS === 'web' && typeof window !== 'undefined' && window.location.port !== '8081' ? window.location.origin : '';
@@ -17,6 +17,8 @@ export const getBaseUrl = () => baseUrl;
 export const defaultBaseUrl = defaultUrl;
 export const setBaseUrl = (u: string) => { baseUrl = u.replace(/\/$/, ''); };
 export const setToken = (t: string | null) => { token = t; };
+/** Full URL for a voice recording (the token rides in the query because <audio> can't send headers). */
+export const audioSrc = (path: string) => `${baseUrl}${path}?token=${encodeURIComponent(token ?? '')}`;
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(`${baseUrl}/api${path}`, {
@@ -42,11 +44,20 @@ export const api = {
   myConnectCode: () => call<{ code: string; expiresAt: string }>('POST', '/connect/code'),
   redeemConnectCode: (code: string) => call<{ id: string; peer: User }>('POST', '/connect/redeem', { code }),
   openConversation: (peerHandle: string) => call<{ id: string; peer: User }>('POST', '/conversations', { peerHandle }),
-  messages: (id: string) => call<{ peer: User; messages: Message[]; peerLastReadAt: string | null }>('GET', `/conversations/${id}/messages`),
+  messages: (id: string) => call<ChatData>('GET', `/conversations/${id}/messages`),
+  sendVoice: (id: string, audioBase64: string, mimeType: string, durationMs: number, replyTo?: string | null) =>
+    call<Message>('POST', `/conversations/${id}/voice`, { audioBase64, mimeType, durationMs, replyTo }),
+  react: (messageId: string, emoji: string | null) => call<Message>('POST', `/messages/${messageId}/react`, { emoji }),
+  deleteMessage: (messageId: string) => call<Message>('DELETE', `/messages/${messageId}`),
+  friends: () => call<User[]>('GET', '/friends'),
+  createGroup: (title: string, memberIds: string[]) => call<{ id: string; title: string }>('POST', '/groups', { title, memberIds }),
+  group: (id: string) => call<{ id: string; title: string; members: User[] }>('GET', `/groups/${id}`),
+  addGroupMembers: (id: string, memberIds: string[]) => call<{ ok: true; added: number }>('POST', `/groups/${id}/members`, { memberIds }),
+  leaveGroup: (id: string) => call<{ ok: true }>('POST', `/groups/${id}/leave`),
   markRead: (id: string) => call<{ at: string }>('POST', `/conversations/${id}/read`),
   deleteConversation: (id: string) => call<{ ok: true }>('DELETE', `/conversations/${id}`),
-  send: (id: string, text: string, kind: 'text' | 'voice' = 'text') =>
-    call<Message>('POST', `/conversations/${id}/messages`, { text, kind }),
+  send: (id: string, text: string, kind: 'text' | 'voice' = 'text', replyTo?: string | null) =>
+    call<Message>('POST', `/conversations/${id}/messages`, { text, kind, replyTo }),
   preview: (id: string, text: string, mode?: TranslationMode) =>
     call<Preview>('POST', `/conversations/${id}/preview`, { text, mode }),
   retranslate: (messageId: string, mode?: TranslationMode) =>

@@ -5,6 +5,8 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Chat } from './src/screens/Chat';
+import { GroupInfo } from './src/screens/GroupInfo';
+import { NewGroup } from './src/screens/NewGroup';
 import { Home } from './src/screens/Home';
 import { NewConversation } from './src/screens/NewConversation';
 import { Onboarding } from './src/screens/Onboarding';
@@ -18,6 +20,8 @@ export type RootStack = {
   NewConversation: undefined;
   Chat: { conversationId: string; peerName: string };
   Settings: undefined;
+  NewGroup: undefined;
+  GroupInfo: { conversationId: string };
 };
 
 const Stack = createNativeStackNavigator<RootStack>();
@@ -63,6 +67,8 @@ export default function App() {
             <Stack.Screen name="NewConversation" component={NewConversation} options={{ title: 'Add friend' }} />
             <Stack.Screen name="Chat" component={Chat} options={{ title: '' }} />
             <Stack.Screen name="Settings" component={Settings} />
+            <Stack.Screen name="NewGroup" component={NewGroup} options={{ title: 'New group' }} />
+            <Stack.Screen name="GroupInfo" component={GroupInfo} options={{ title: 'Group' }} />
           </Stack.Navigator>
         </NavigationContainer>
         </View>

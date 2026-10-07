@@ -1,10 +1,10 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, KeyboardAvoidingView, Platform, Pressable, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { api, connectSocket, sendSocket } from '../api/client';
 import { Avatar } from '../components/Avatar';
 import { Composer } from '../components/Composer';
-import { confirmDeleteChat, notify } from '../components/dialog';
+import { confirm, confirmDeleteChat, notify } from '../components/dialog';
 import { MessageBubble } from '../components/MessageBubble';
 import { lastSeen } from './Home';
 import { useApp } from '../store/app';
@@ -12,18 +12,29 @@ import { useTheme } from '../theme';
 import type { Message, User } from '../types';
 import type { RootStack } from '../../App';
 
+const firstName = (n: string) => n.split(' ')[0];
+
 export function Chat({ route, navigation }: NativeStackScreenProps<RootStack, 'Chat'>) {
   const { conversationId, peerName } = route.params;
   const t = useTheme();
   const me = useApp((s) => s.user)!;
+  const [title, setTitle] = useState(peerName);
+  const [isGroup, setIsGroup] = useState(false);
   const [peer, setPeer] = useState<User | null>(null);
+  const [members, setMembers] = useState<User[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
   const list = useRef<FlatList<Message>>(null);
-  const [peerLastReadAt, setPeerLastReadAt] = useState<string | null>(null);
-  const [typing, setTyping] = useState(false);
-  const typingTimer = useRef<ReturnType<typeof setTimeout>>();
+  const [reads, setReads] = useState<Record<string, string>>({});
+  const [typingIds, setTypingIds] = useState<string[]>([]);
+  const typingTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const lastTypingSent = useRef(0);
+  const [replyTo, setReplyTo] = useState<Message | null>(null);
+
+  const names = useMemo(() => Object.fromEntries(members.map((u) => [u.id, u.name])), [members]);
+  const others = members.filter((u) => u.id !== me.id);
+  // ✓✓ once everyone else has read up to a message
+  const seenUpTo = others.length && others.every((u) => reads[u.id]) ? others.map((u) => reads[u.id]).sort()[0] : null;
 
   const visible = () => Platform.OS !== 'web' || !document.hidden;
   const markRead = useCallback(() => { if (visible()) api.markRead(conversationId).catch(() => {}); }, [conversationId]);
@@ -34,60 +45,88 @@ export function Chat({ route, navigation }: NativeStackScreenProps<RootStack, 'C
     sendSocket('typing', { conversationId });
   }, [conversationId]);
 
-  const status = typing ? 'typing…' : lastSeen(peer?.online, peer?.lastSeenAt) || 'Translating automatically';
+  const typingNames = typingIds.map((id) => firstName(names[id] ?? '')).filter(Boolean);
+  const status = typingIds.length
+    ? isGroup ? `${typingNames.join(', ')} ${typingNames.length > 1 ? 'are' : 'is'} typing…` : 'typing…'
+    : isGroup
+      ? ['You', ...others.map((u) => firstName(u.name))].join(', ')
+      : lastSeen(peer?.online, peer?.lastSeenAt) || 'Translating automatically';
 
   useEffect(() => {
     navigation.setOptions({
       headerTitle: () => (
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-          <Avatar name={peerName} url={peer?.avatarUrl} size={36} />
-          <View>
-            <Text style={{ color: t.text, fontSize: 17, fontWeight: '700' }}>{peerName}</Text>
-            <Text style={{ color: typing || peer?.online ? '#22C55E' : t.primary, fontSize: 12 }}>{status}</Text>
+        <Pressable disabled={!isGroup} onPress={() => navigation.navigate('GroupInfo', { conversationId })} style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          <Avatar name={isGroup ? '👥' : title} url={isGroup ? null : peer?.avatarUrl} size={36} />
+          <View style={{ flexShrink: 1 }}>
+            <Text numberOfLines={1} style={{ color: t.text, fontSize: 17, fontWeight: '700' }}>{title}</Text>
+            <Text numberOfLines={1} style={{ color: typingIds.length || peer?.online ? '#22C55E' : t.primary, fontSize: 12 }}>{status}</Text>
           </View>
-        </View>
-      ),
-      headerRight: () => (
-        <Pressable
-          hitSlop={10}
-          accessibilityLabel="Delete chat"
-          onPress={async () => {
-            if (!(await confirmDeleteChat(peerName))) return;
-            try { await api.deleteConversation(conversationId); navigation.goBack(); }
-            catch (e) { notify('Could not delete chat', String((e as Error).message)); }
-          }}
-        >
-          <Text style={{ fontSize: 20 }}>🗑️</Text>
         </Pressable>
       ),
+      headerRight: () => (
+        <View style={{ flexDirection: 'row', gap: 16, alignItems: 'center' }}>
+          {isGroup ? (
+            <Pressable hitSlop={10} accessibilityLabel="Group info" onPress={() => navigation.navigate('GroupInfo', { conversationId })}>
+              <Text style={{ fontSize: 20 }}>ⓘ</Text>
+            </Pressable>
+          ) : null}
+          <Pressable
+            hitSlop={10}
+            accessibilityLabel="Delete chat"
+            onPress={async () => {
+              if (!(await confirmDeleteChat(title))) return;
+              try { await api.deleteConversation(conversationId); navigation.goBack(); }
+              catch (e) { notify('Could not delete chat', String((e as Error).message)); }
+            }}
+          >
+            <Text style={{ fontSize: 20 }}>🗑️</Text>
+          </Pressable>
+        </View>
+      ),
     });
-  }, [navigation, peerName, conversationId, t, status, typing, peer]);
+  }, [navigation, title, conversationId, t, status, typingIds.length, peer, isGroup]);
 
-  useEffect(() => {
+  const load = useCallback(() =>
     api.messages(conversationId)
-      .then((r) => { setPeer(r.peer); setMessages(r.messages); setPeerLastReadAt(r.peerLastReadAt); markRead(); })
+      .then((r) => {
+        setTitle(r.title ?? peerName);
+        setIsGroup(r.isGroup);
+        setPeer(r.peer);
+        setMembers(r.members);
+        setMessages(r.messages);
+        setReads(r.reads);
+        markRead();
+      })
       .catch((e) => notify('Could not load chat', String(e.message)))
-      .finally(() => setLoading(false));
-  }, [conversationId, markRead]);
+      .finally(() => setLoading(false)), [conversationId, markRead, peerName]);
+  useEffect(() => { load(); }, [load]);
 
   const upsert = useCallback((m: Message) => {
     if (m.conversationId !== conversationId) return;
     setMessages((prev) => (prev.some((x) => x.id === m.id) ? prev.map((x) => (x.id === m.id ? m : x)) : [...prev, m]));
   }, [conversationId]);
 
+  const stopTyping = (id: string) => { clearTimeout(typingTimers.current.get(id)); setTypingIds((xs) => xs.filter((x) => x !== id)); };
+
   useEffect(() => connectSocket((event, data) => {
     if (event === 'message' || event === 'message_updated') {
       upsert(data);
-      if (event === 'message' && data.conversationId === conversationId && data.senderId !== me.id) { setTyping(false); markRead(); }
+      if (event === 'message' && data.conversationId === conversationId && data.senderId !== me.id) { stopTyping(data.senderId); markRead(); }
     }
-    if (data?.conversationId === conversationId && event === 'read' && data.userId !== me.id) setPeerLastReadAt(data.at);
+    if (data?.conversationId === conversationId && event === 'read' && data.userId !== me.id) setReads((r) => ({ ...r, [data.userId]: data.at }));
     if (data?.conversationId === conversationId && event === 'typing') {
-      setTyping(true);
-      clearTimeout(typingTimer.current);
-      typingTimer.current = setTimeout(() => setTyping(false), 3500);
+      const id = data.userId as string;
+      setTypingIds((xs) => (xs.includes(id) ? xs : [...xs, id]));
+      clearTimeout(typingTimers.current.get(id));
+      typingTimers.current.set(id, setTimeout(() => stopTyping(id), 3500));
     }
-    if (event === 'presence') setPeer((p) => (p && p.id === data.userId ? { ...p, online: data.online, lastSeenAt: data.lastSeenAt ?? p.lastSeenAt } : p));
-  }), [upsert, conversationId, me.id, markRead]);
+    if (event === 'group_updated' && data.id === conversationId) load();
+    if (event === 'presence') {
+      const upd = (u: User) => (u.id === data.userId ? { ...u, online: data.online, lastSeenAt: data.lastSeenAt ?? u.lastSeenAt } : u);
+      setPeer((p) => (p ? upd(p) : p));
+      setMembers((ms) => ms.map(upd));
+    }
+  }), [upsert, conversationId, me.id, markRead, load]);
 
   // coming back to the tab counts as reading
   useEffect(() => {
@@ -101,6 +140,17 @@ export function Chat({ route, navigation }: NativeStackScreenProps<RootStack, 'C
     try { upsert(await api.retranslate(m.id)); }
     catch (e) { notify('Could not translate again', String((e as Error).message)); }
   };
+  const react = async (m: Message, emoji: string) => {
+    try { upsert(await api.react(m.id, emoji)); }
+    catch (e) { notify('Could not react', String((e as Error).message)); }
+  };
+  const remove = async (m: Message) => {
+    if (!(await confirm('Delete for everyone?', 'This message will be removed for everyone in this chat.', 'Delete'))) return;
+    try { upsert(await api.deleteMessage(m.id)); if (replyTo?.id === m.id) setReplyTo(null); }
+    catch (e) { notify('Could not delete', String((e as Error).message)); }
+  };
+
+  const previewFor = isGroup ? (others[0] ? firstName(others[0].name) : 'the group') : title;
 
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0} style={{ flex: 1, backgroundColor: t.screen }}>
@@ -109,15 +159,30 @@ export function Chat({ route, navigation }: NativeStackScreenProps<RootStack, 'C
           ref={list} data={messages} keyExtractor={(m) => m.id}
           contentContainerStyle={{ padding: 12 }}
           onContentSizeChange={() => list.current?.scrollToEnd({ animated: true })}
-          ListEmptyComponent={<Text style={{ color: t.sub, textAlign: 'center', marginTop: 40 }}>Type in your own language. {peerName} will read it in theirs.</Text>}
+          ListEmptyComponent={
+            <Text style={{ color: t.sub, textAlign: 'center', marginTop: 40 }}>
+              {isGroup ? 'Type in your own language. Everyone reads it in theirs.' : `Type in your own language. ${title} will read it in theirs.`}
+            </Text>
+          }
           renderItem={({ item }) => (
-            <MessageBubble message={item} me={me} displayMode={me.displayMode} onRetranslate={retranslate}
-              seen={!!peerLastReadAt && item.senderId === me.id && item.createdAt <= peerLastReadAt} />
+            <MessageBubble
+              message={item} me={me} displayMode={me.displayMode} isGroup={isGroup} names={names}
+              senderName={names[item.senderId]}
+              seen={!!seenUpTo && item.senderId === me.id && item.createdAt <= seenUpTo}
+              onRetranslate={retranslate} onReact={react} onDelete={remove}
+              onReply={(m) => setReplyTo(m)}
+            />
           )}
-          extraData={peerLastReadAt}
+          extraData={[seenUpTo, names]}
         />
       )}
-      {peer ? <Composer conversationId={conversationId} me={me} peer={peer} onSent={upsert} onTyping={sendTyping} /> : null}
+      {!loading ? (
+        <Composer
+          conversationId={conversationId} me={me} previewFor={previewFor} onSent={upsert} onTyping={sendTyping}
+          replyTo={replyTo} replyToName={replyTo ? (replyTo.senderId === me.id ? 'yourself' : names[replyTo.senderId] ?? '') : ''}
+          onCancelReply={() => setReplyTo(null)}
+        />
+      ) : null}
     </KeyboardAvoidingView>
   );
 }

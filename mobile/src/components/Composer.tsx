@@ -4,6 +4,7 @@ import { notify } from './dialog';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import { api } from '../api/client';
+import { useRecorder } from '../hooks/useRecorder';
 import { useVoice } from '../hooks/useVoice';
 import { useApp } from '../store/app';
 import { radius, useTheme } from '../theme';
@@ -12,12 +13,16 @@ import type { Message, Preview, User } from '../types';
 interface Props {
   conversationId: string;
   me: User;
-  peer: User;
+  /** who the preview translates for (1:1 peer, or a group member) */
+  previewFor: string;
   onSent: (m: Message) => void;
   onTyping?: () => void;
+  replyTo: Message | null;
+  replyToName: string;
+  onCancelReply: () => void;
 }
 
-export function Composer({ conversationId, me, peer, onSent, onTyping }: Props) {
+export function Composer({ conversationId, me, previewFor, onSent, onTyping, replyTo, replyToName, onCancelReply }: Props) {
   const t = useTheme();
   const previewBeforeSend = useApp((s) => s.previewBeforeSend);
   const [text, setText] = useState('');
@@ -29,8 +34,9 @@ export function Composer({ conversationId, me, peer, onSent, onTyping }: Props) 
   const send = async (value: string, kind: 'text' | 'voice' = 'text') => {
     setBusy(true);
     try {
-      const msg = await api.send(conversationId, value, kind);
+      const msg = await api.send(conversationId, value, kind, replyTo?.id);
       onSent(msg);
+      onCancelReply();
       setText('');
       setPreview(null);
     } catch (e) {
@@ -58,8 +64,28 @@ export function Composer({ conversationId, me, peer, onSent, onTyping }: Props) 
     previewBeforeSend ? showPreview(v, 'text') : send(v);
   };
 
-  // Voice: speech -> STT -> (server) detect -> translate -> preview. Voice always previews so a mis-heard word is catchable.
+  // Dictation (native): speech -> STT -> (server) detect -> translate -> preview. Always previews so a mis-heard word is catchable.
   const voice = useVoice(me.language, (spoken) => { setText(spoken); showPreview(spoken, 'voice'); });
+
+  // Voice messages (web): record, then the server keeps the audio, transcribes and translates it.
+  const recorder = useRecorder();
+  const [sendingVoice, setSendingVoice] = useState(false);
+  const startRecording = async () => {
+    try { await recorder.start(); }
+    catch { notify('Microphone blocked', 'Allow microphone access for this site to send voice messages.'); }
+  };
+  const sendRecording = async () => {
+    const r = await recorder.stop();
+    if (!r) return;
+    if (r.durationMs < 700) { notify('Too short', 'Hold on a little longer to record a voice message.'); return; }
+    setSendingVoice(true);
+    try { onSent(await api.sendVoice(conversationId, r.base64, r.mimeType, r.durationMs, replyTo?.id)); onCancelReply(); }
+    catch (e) {
+      const m = (e as Error).message;
+      notify('Could not send voice message', m === 'no_speech' ? "Couldn't hear any words. Try again a bit closer to the mic." : m);
+    } finally { setSendingVoice(false); }
+  };
+  const secs = Math.floor(recorder.elapsed / 1000);
 
   const pickImage = async () => {
     const res = await ImagePicker.launchImageLibraryAsync({ base64: true, quality: 0.6, mediaTypes: ['images'] });
@@ -90,11 +116,36 @@ export function Composer({ conversationId, me, peer, onSent, onTyping }: Props) 
 
   return (
     <View style={{ backgroundColor: t.card, borderTopColor: t.border, borderTopWidth: 1, padding: 10 }}>
+      {replyTo ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, borderLeftWidth: 3, borderLeftColor: t.primary, backgroundColor: t.chip, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, marginBottom: 8 }}>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: t.primary, fontSize: 12, fontWeight: '700' }}>Replying to {replyToName}</Text>
+            <Text numberOfLines={1} style={{ color: t.sub, fontSize: 13 }}>{replyTo.senderId === me.id ? replyTo.originalText : replyTo.primaryText}</Text>
+          </View>
+          <Pressable onPress={onCancelReply} hitSlop={10} accessibilityLabel="Cancel reply"><Text style={{ color: t.sub, fontSize: 18 }}>✕</Text></Pressable>
+        </View>
+      ) : null}
+      {recorder.recording || sendingVoice ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+          <Text style={{ color: '#EF4444', fontSize: 16 }}>●</Text>
+          <Text style={{ color: t.text, fontSize: 15, flex: 1 }}>
+            {sendingVoice ? 'Sending and translating…' : `Recording ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`}
+          </Text>
+          {sendingVoice ? <ActivityIndicator color={t.primary} /> : (
+            <>
+              <Pressable onPress={recorder.cancel} style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: t.chip }}><Text style={{ color: t.text, fontWeight: '600' }}>Cancel</Text></Pressable>
+              <Pressable onPress={sendRecording} style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: t.primary }}><Text style={{ color: t.onPrimary, fontWeight: '700' }}>Send ➤</Text></Pressable>
+            </>
+          )}
+        </View>
+      ) : null}
       {voice.listening ? <Text style={{ color: t.primary, marginBottom: 6, fontSize: 15 }}>Listening... {voice.partial}</Text> : null}
       {voice.error ? <Text style={{ color: t.warn, marginBottom: 6 }}>{voice.error}</Text> : null}
 
       <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8 }}>
-        <IconBtn label="🎤" active={voice.listening} onPress={() => (voice.listening ? voice.stop() : voice.start())} />
+        {recorder.supported
+          ? <IconBtn label="🎤" active={recorder.recording} onPress={() => (recorder.recording ? sendRecording() : startRecording())} />
+          : <IconBtn label="🎤" active={voice.listening} onPress={() => (voice.listening ? voice.stop() : voice.start())} />}
         <IconBtn label="📷" onPress={pickImage} />
         <IconBtn label="📎" onPress={pickFile} />
         <TextInput
@@ -112,7 +163,7 @@ export function Composer({ conversationId, me, peer, onSent, onTyping }: Props) 
             <View style={{ backgroundColor: t.card, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, gap: 6 }}>
               <Text style={{ color: t.sub, fontSize: 12, fontWeight: '700' }}>DETECTED</Text>
               <Text style={{ color: t.text, fontSize: 16, fontWeight: '600' }}>{preview.detected.label}  <Text style={{ color: t.sub }}>{Math.round(preview.detected.confidence * 100)}%</Text></Text>
-              <Text style={{ color: t.sub, fontSize: 12, fontWeight: '700', marginTop: 8 }}>TRANSLATE TO ({peer.name})</Text>
+              <Text style={{ color: t.sub, fontSize: 12, fontWeight: '700', marginTop: 8 }}>TRANSLATE TO ({previewFor})</Text>
               <Text style={{ color: t.text, fontSize: 16, fontWeight: '600' }}>{preview.translateTo.label}</Text>
               <Text style={{ color: t.sub, fontSize: 12, fontWeight: '700', marginTop: 8 }}>PREVIEW</Text>
               <Text style={{ color: t.text, fontSize: 16 }}>{text}</Text>
