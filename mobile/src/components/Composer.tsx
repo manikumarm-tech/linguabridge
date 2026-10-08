@@ -9,6 +9,7 @@ import { useVoice } from '../hooks/useVoice';
 import { useApp } from '../store/app';
 import { radius, useTheme } from '../theme';
 import type { Message, Preview, User } from '../types';
+import { fx } from '../ui/web';
 
 interface Props {
   conversationId: string;
@@ -108,14 +109,20 @@ export function Composer({ conversationId, me, previewFor, onSent, onTyping, rep
     notify('Attachments', 'File sharing is not available yet. Text, voice and photo-to-text are supported.');
   };
 
-  const IconBtn = ({ label, onPress, active }: { label: string; onPress: () => void; active?: boolean }) => (
-    <Pressable onPress={onPress} hitSlop={6} style={{ width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', backgroundColor: active ? t.primary : t.chip }}>
-      <Text style={{ fontSize: 18 }}>{label}</Text>
+  const IconBtn = ({ label, onPress, a11y }: { label: string; onPress: () => void; a11y: string }) => (
+    <Pressable onPress={onPress} hitSlop={6} accessibilityLabel={a11y} {...fx({ press: true })}
+      style={{ width: 38, height: 40, borderRadius: 19, alignItems: 'center', justifyContent: 'center' }}>
+      <Text style={{ fontSize: 19, opacity: 0.85 }}>{label}</Text>
     </Pressable>
   );
+  const hasText = !!text.trim();
+  const micActive = recorder.supported ? recorder.recording : voice.listening;
+  const onMic = () => (recorder.supported
+    ? (recorder.recording ? sendRecording() : startRecording())
+    : (voice.listening ? voice.stop() : voice.start()));
 
   return (
-    <View style={{ backgroundColor: t.card, borderTopColor: t.border, borderTopWidth: 1, padding: 10 }}>
+    <View style={{ backgroundColor: t.screen === 'transparent' ? t.glass : t.card, borderTopColor: t.border, borderTopWidth: 1, paddingHorizontal: 12, paddingVertical: 10 }}>
       {replyTo ? (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, borderLeftWidth: 3, borderLeftColor: t.primary, backgroundColor: t.chip, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, marginBottom: 8 }}>
           <View style={{ flex: 1 }}>
@@ -143,18 +150,30 @@ export function Composer({ conversationId, me, previewFor, onSent, onTyping, rep
       {voice.error ? <Text style={{ color: t.warn, marginBottom: 6 }}>{voice.error}</Text> : null}
 
       <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8 }}>
-        {recorder.supported
-          ? <IconBtn label="🎤" active={recorder.recording} onPress={() => (recorder.recording ? sendRecording() : startRecording())} />
-          : <IconBtn label="🎤" active={voice.listening} onPress={() => (voice.listening ? voice.stop() : voice.start())} />}
-        <IconBtn label="📷" onPress={pickImage} />
-        <IconBtn label="📎" onPress={pickFile} />
-        <TextInput
-          ref={inputRef} value={text} onChangeText={(v) => { setText(v); if (v.trim()) onTyping?.(); }} multiline placeholder="Type a message..." placeholderTextColor={t.sub}
-          style={{ flex: 1, maxHeight: 120, minHeight: 40, backgroundColor: t.bg, color: t.text, borderRadius: radius.lg, paddingHorizontal: 14, paddingTop: 10, paddingBottom: 10, fontSize: 16 }}
-        />
-        <Pressable onPress={onSend} disabled={busy || !text.trim()} style={{ height: 40, paddingHorizontal: 16, borderRadius: 20, justifyContent: 'center', backgroundColor: t.primary, opacity: busy || !text.trim() ? 0.5 : 1 }}>
-          {busy ? <ActivityIndicator color={t.onPrimary} /> : <Text style={{ color: t.onPrimary, fontWeight: '700' }}>Send</Text>}
-        </Pressable>
+        <View {...fx({ focusring: true })} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: t.chip, borderRadius: 26, paddingHorizontal: 6, minHeight: 50, borderWidth: 1, borderColor: t.border }}>
+          <IconBtn label="📷" a11y="Text from a photo" onPress={pickImage} />
+          <TextInput
+            ref={inputRef} value={text} onChangeText={(v) => { setText(v); if (v.trim()) onTyping?.(); }} multiline numberOfLines={1}
+            placeholder={replyTo ? 'Write a reply…' : 'Message in your language…'} placeholderTextColor={t.sub}
+            onKeyPress={(e: any) => {
+              // web: Enter sends, Shift+Enter adds a line
+              if (e?.nativeEvent?.key === 'Enter' && !e?.nativeEvent?.shiftKey && typeof window !== 'undefined' && 'document' in window) { e.preventDefault?.(); onSend(); }
+            }}
+            style={{ flex: 1, maxHeight: 130, minHeight: 24, color: t.text, paddingHorizontal: 6, paddingVertical: 12, fontSize: 16, lineHeight: 22 }}
+          />
+          <IconBtn label="📎" a11y="Attach" onPress={pickFile} />
+        </View>
+        {hasText ? (
+          <Pressable onPress={onSend} disabled={busy} accessibilityLabel="Send" {...fx({ grad: 'primary', press: true, glow: true, anim: 'pop' })}
+            style={{ width: 50, height: 50, borderRadius: 25, justifyContent: 'center', alignItems: 'center', backgroundColor: t.primary, opacity: busy ? 0.6 : 1 }}>
+            {busy ? <ActivityIndicator color={t.onPrimary} /> : <Text style={{ color: t.onPrimary, fontSize: 20, fontWeight: '800', marginLeft: 3 }}>➤</Text>}
+          </Pressable>
+        ) : (
+          <Pressable onPress={onMic} accessibilityLabel={micActive ? 'Stop recording' : 'Record a voice message'} {...fx({ grad: micActive ? undefined : 'primary', press: true, glow: !micActive, anim: 'pop' })}
+            style={{ width: 50, height: 50, borderRadius: 25, justifyContent: 'center', alignItems: 'center', backgroundColor: micActive ? '#EF4444' : t.primary }}>
+            <Text style={{ fontSize: 20 }}>{micActive ? '■' : '🎤'}</Text>
+          </Pressable>
+        )}
       </View>
 
       <Modal visible={!!preview} transparent animationType="slide" onRequestClose={() => setPreview(null)}>

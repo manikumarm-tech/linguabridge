@@ -9,10 +9,22 @@ import { MessageBubble } from '../components/MessageBubble';
 import { lastSeen } from './Home';
 import { useApp } from '../store/app';
 import { useTheme } from '../theme';
+import { fx } from '../ui/web';
 import type { Message, User } from '../types';
 import type { RootStack } from '../../App';
 
 const firstName = (n: string) => n.split(' ')[0];
+
+/** "Today" / "Yesterday" / "Mon, 6 Oct" */
+function dayLabel(iso: string) {
+  const d = new Date(iso);
+  const today = new Date();
+  const yest = new Date(); yest.setDate(today.getDate() - 1);
+  if (d.toDateString() === today.toDateString()) return 'Today';
+  if (d.toDateString() === yest.toDateString()) return 'Yesterday';
+  return d.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' });
+}
+const sameDay = (a: string, b: string) => new Date(a).toDateString() === new Date(b).toDateString();
 
 export function Chat({ route, navigation }: NativeStackScreenProps<RootStack, 'Chat'>) {
   const { conversationId, peerName } = route.params;
@@ -59,7 +71,7 @@ export function Chat({ route, navigation }: NativeStackScreenProps<RootStack, 'C
           <Avatar name={isGroup ? '👥' : title} url={isGroup ? null : peer?.avatarUrl} size={36} />
           <View style={{ flexShrink: 1 }}>
             <Text numberOfLines={1} style={{ color: t.text, fontSize: 17, fontWeight: '700' }}>{title}</Text>
-            <Text numberOfLines={1} style={{ color: typingIds.length || peer?.online ? '#22C55E' : t.primary, fontSize: 12 }}>{status}</Text>
+            <Text numberOfLines={1} style={{ color: typingIds.length || peer?.online ? t.success : t.sub, fontSize: 12, fontWeight: '600' }}>{status}</Text>
           </View>
         </Pressable>
       ),
@@ -157,23 +169,44 @@ export function Chat({ route, navigation }: NativeStackScreenProps<RootStack, 'C
       {loading ? <ActivityIndicator style={{ marginTop: 40 }} color={t.primary} /> : (
         <FlatList
           ref={list} data={messages} keyExtractor={(m) => m.id}
-          contentContainerStyle={{ padding: 12 }}
+          contentContainerStyle={{ paddingHorizontal: 14, paddingVertical: 10 }}
           onContentSizeChange={() => list.current?.scrollToEnd({ animated: true })}
           ListEmptyComponent={
             <Text style={{ color: t.sub, textAlign: 'center', marginTop: 40 }}>
               {isGroup ? 'Type in your own language. Everyone reads it in theirs.' : `Type in your own language. ${title} will read it in theirs.`}
             </Text>
           }
-          renderItem={({ item }) => (
+          renderItem={({ item, index }) => {
+            const prev = messages[index - 1];
+            const newDay = !prev || !sameDay(prev.createdAt, item.createdAt);
+            const continued = !newDay && prev.senderId === item.senderId && !prev.deleted
+              && new Date(item.createdAt).getTime() - new Date(prev.createdAt).getTime() < 5 * 60_000;
+            return (
+            <>
+            {newDay ? (
+              <View style={{ alignItems: 'center', marginVertical: 14 }}>
+                <Text style={{ color: t.sub, fontSize: 12, fontWeight: '700', backgroundColor: t.chip, paddingHorizontal: 12, paddingVertical: 5, borderRadius: 999, overflow: 'hidden' }}>{dayLabel(item.createdAt)}</Text>
+              </View>
+            ) : null}
             <MessageBubble
-              message={item} me={me} displayMode={me.displayMode} isGroup={isGroup} names={names}
+              message={item} me={me} displayMode={me.displayMode} isGroup={isGroup} names={names} continued={continued}
               senderName={names[item.senderId]}
               seen={!!seenUpTo && item.senderId === me.id && item.createdAt <= seenUpTo}
               onRetranslate={retranslate} onReact={react} onDelete={remove}
               onReply={(m) => setReplyTo(m)}
             />
-          )}
+            </>
+            );
+          }}
           extraData={[seenUpTo, names]}
+          ListFooterComponent={typingIds.length ? (
+            <View {...fx({ anim: 'in' })} style={{ alignSelf: 'flex-start', marginTop: 6, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: t.theirs, borderWidth: 1, borderColor: t.border, borderRadius: 20, borderBottomLeftRadius: 6, paddingHorizontal: 14, paddingVertical: 10 }}>
+              {isGroup ? <Text style={{ color: t.accent, fontSize: 12, fontWeight: '700' }}>{typingNames.join(', ')}</Text> : null}
+              <View style={{ flexDirection: 'row', gap: 4 }}>
+                {[1, 2, 3].map((n) => <View key={n} {...fx({ dot: n })} style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: t.sub }} />)}
+              </View>
+            </View>
+          ) : null}
         />
       )}
       {!loading ? (

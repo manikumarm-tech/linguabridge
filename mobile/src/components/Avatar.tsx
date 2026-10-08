@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Image, Text, View } from 'react-native';
 import { useTheme } from '../theme';
+import { fx } from '../ui/web';
 
 /** Profile photo (Google) or first letter, with a green dot when online. */
 export function Avatar({ name, url, online, size = 48 }: { name: string; url?: string | null; online?: boolean; size?: number }) {
@@ -12,12 +13,12 @@ export function Avatar({ name, url, online, size = 48 }: { name: string; url?: s
       {url && !broken ? (
         <Image source={{ uri: url }} onError={() => setBroken(true)} style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: t.chip }} />
       ) : (
-        <View style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: t.chip, alignItems: 'center', justifyContent: 'center' }}>
+        <View {...fx({ grad: 'soft' })} style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: t.chip, alignItems: 'center', justifyContent: 'center' }}>
           <Text style={{ color: t.primary, fontSize: size * 0.42, fontWeight: '700' }}>{(Array.from(name)[0] ?? '?').toUpperCase()}</Text>
         </View>
       )}
       {online ? (
-        <View style={{ position: 'absolute', right: 0, bottom: 0, width: dot, height: dot, borderRadius: dot / 2, backgroundColor: '#22C55E', borderWidth: 2, borderColor: t.card }} />
+        <View style={{ position: 'absolute', right: 0, bottom: 0, width: dot, height: dot, borderRadius: dot / 2, backgroundColor: t.success, borderWidth: 2.5, borderColor: t.bg }} />
       ) : null}
     </View>
   );

@@ -4,18 +4,21 @@ import { Platform, useColorScheme } from 'react-native';
 const web = Platform.OS === 'web';
 
 const light = {
-  bg: '#F6F7FB', card: '#FFFFFF', text: '#14161F', sub: '#6B7183', border: '#E4E7F0',
-  primary: '#4F46E5', onPrimary: '#FFFFFF', mine: '#E8E7FF', theirs: '#FFFFFF',
-  warn: '#B45309', warnBg: '#FEF3C7', chip: '#EEF0FA',
-  screen: web ? 'transparent' : '#F6F7FB', glass: 'rgba(246,247,251,0.84)',
+  bg: '#F5F5FA', card: '#FFFFFF', text: '#151622', sub: '#6B6F85', border: '#E6E6F0',
+  primary: '#7C3AED', onPrimary: '#FFFFFF', accent: '#DB2777',
+  // my bubbles: violet gradient on web, solid violet on native; always white text
+  mine: '#6D28D9', onMine: '#FFFFFF', onMineSub: 'rgba(255,255,255,0.78)', theirs: '#FFFFFF',
+  warn: '#B45309', warnBg: '#FEF3C7', chip: '#F0EEFB', success: '#16A34A',
+  screen: web ? 'transparent' : '#F5F5FA', glass: 'rgba(245,245,250,0.86)',
 };
 export type Theme = typeof light;
 const dark: Theme = {
-  bg: '#0E1016', card: '#181B25', text: '#F2F3F8', sub: '#9AA0B4', border: '#262A38',
-  primary: '#8B87FF', onPrimary: '#0E1016', mine: '#2A2860', theirs: '#1E212D',
-  warn: '#FBBF24', warnBg: '#3A2E10', chip: '#232738',
-  screen: web ? 'transparent' : '#0E1016', glass: 'rgba(14,16,22,0.72)',
+  bg: '#0B0D14', card: '#171A26', text: '#F4F4FA', sub: '#9A9DB5', border: '#262A3B',
+  primary: '#8B5CF6', onPrimary: '#FFFFFF', accent: '#F472B6',
+  mine: '#6D28D9', onMine: '#FFFFFF', onMineSub: 'rgba(255,255,255,0.75)', theirs: web ? 'rgba(30,33,48,0.92)' : '#1E2130',
+  warn: '#FBBF24', warnBg: '#3A2E10', chip: '#232639', success: '#22C55E',
+  screen: web ? 'transparent' : '#0B0D14', glass: 'rgba(11,13,20,0.74)',
 };
 
 export const useTheme = (): Theme => (useColorScheme() === 'dark' ? dark : light);
-export const radius = { sm: 8, md: 14, lg: 20 };
+export const radius = { sm: 8, md: 14, lg: 20, xl: 28 };

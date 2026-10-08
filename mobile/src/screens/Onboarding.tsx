@@ -6,6 +6,7 @@ import { formatOptions } from '../components/formats';
 import { GoogleButton } from '../components/GoogleButton';
 import { LanguagePicker } from '../components/LanguagePicker';
 import { WelcomeBackdrop } from '../components/WelcomeBackdrop';
+import { fx } from '../ui/web';
 import { Option } from '../components/Option';
 import { langByCode } from '../languages';
 import { useApp } from '../store/app';
@@ -93,7 +94,8 @@ export function Onboarding() {
     </View>
   );
   const Btn = ({ label, onPress, disabled, secondary }: { label: string; onPress: () => void; disabled?: boolean; secondary?: boolean }) => (
-    <Pressable onPress={onPress} disabled={disabled || busy} style={{ backgroundColor: secondary ? t.chip : t.primary, padding: 16, borderRadius: radius.md, alignItems: 'center', opacity: disabled ? 0.5 : 1 }}>
+    <Pressable onPress={onPress} disabled={disabled || busy} {...fx({ grad: secondary ? undefined : 'primary', press: true, glow: !secondary })}
+      style={{ backgroundColor: secondary ? t.chip : t.primary, padding: 16, borderRadius: 999, alignItems: 'center', opacity: disabled ? 0.5 : 1 }}>
       {busy && !secondary ? <ActivityIndicator color={t.onPrimary} /> : <Text style={{ color: secondary ? t.text : t.onPrimary, fontSize: 16, fontWeight: '700' }}>{label}</Text>}
     </Pressable>
   );
@@ -111,7 +113,7 @@ export function Onboarding() {
         {step === 'welcome' && (
           <View style={{ gap: 16 }}>
             <Text style={{ fontSize: 52, textAlign: isWeb ? 'center' : 'left' }}>💬</Text>
-            <Text style={{ color: t.text, fontSize: 34, fontWeight: '800', textAlign: isWeb ? 'center' : 'left' }}>Welcome to EasyTalk</Text>
+            <Text style={{ color: t.text, fontSize: 34, fontWeight: '800', letterSpacing: -0.5, textAlign: isWeb ? 'center' : 'left' }}>Welcome to <Text {...fx({ gradtext: true })} style={{ color: t.primary }}>EasyTalk</Text></Text>
             <Text style={{ color: t.sub, fontSize: 18, marginBottom: 16, textAlign: isWeb ? 'center' : 'left' }}>Talk to anyone in their language.</Text>
             <GoogleButton onToken={withGoogle} />
             <Btn label="Get started without Google" secondary onPress={next} />

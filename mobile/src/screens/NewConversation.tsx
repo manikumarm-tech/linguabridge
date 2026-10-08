@@ -4,6 +4,7 @@ import * as Clipboard from 'expo-clipboard';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { api, connectSocket } from '../api/client';
 import { radius, useTheme } from '../theme';
+import { fx } from '../ui/web';
 import type { RootStack } from '../../App';
 
 const DEMOS = [
@@ -78,9 +79,9 @@ export function NewConversation({ navigation }: NativeStackScreenProps<RootStack
     setTimeout(() => setCopied(false), 1500);
   };
 
-  const card = { backgroundColor: t.card, borderRadius: radius.lg, borderWidth: 1, borderColor: t.border, padding: 20 } as const;
-  const heading = { color: t.sub, fontWeight: '700', fontSize: 12, letterSpacing: 0.4, marginBottom: 10 } as const;
-  const button = { backgroundColor: t.primary, padding: 14, borderRadius: radius.md, alignItems: 'center', flex: 1 } as const;
+  const card = { backgroundColor: t.card, borderRadius: radius.xl, borderWidth: 1, borderColor: t.border, padding: 22 } as const;
+  const heading = { color: t.sub, fontWeight: '800', fontSize: 11.5, letterSpacing: 1, marginBottom: 10 } as const;
+  const button = { backgroundColor: t.primary, padding: 14, borderRadius: 999, alignItems: 'center', flex: 1 } as const;
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: t.screen }} contentContainerStyle={{ padding: 20, gap: 16 }} keyboardShouldPersistTaps="handled">
@@ -89,12 +90,21 @@ export function NewConversation({ navigation }: NativeStackScreenProps<RootStack
         <Text style={{ color: t.sub, fontSize: 14 }}>Send this to your friend. When they enter it, you're connected.</Text>
         {mine ? (
           <>
-            <Text selectable style={{ color: t.text, fontSize: 44, fontWeight: '800', letterSpacing: 6, textAlign: 'center', marginVertical: 16, fontVariant: ['tabular-nums'] }}>{spaced(mine.code)}</Text>
+            <View accessible accessibilityLabel={`Your code ${mine.code.split('').join(' ')}`} style={{ flexDirection: 'row', justifyContent: 'center', gap: 8, marginVertical: 18 }}>
+              {mine.code.split('').map((d, i) => (
+                <React.Fragment key={i}>
+                  {i === 3 ? <View style={{ width: 8 }} /> : null}
+                  <View {...fx({ grad: 'soft', anim: 'pop' })} style={{ width: 46, height: 60, borderRadius: 14, backgroundColor: t.chip, borderWidth: 1, borderColor: t.border, alignItems: 'center', justifyContent: 'center' }}>
+                    <Text {...fx({ gradtext: true })} style={{ color: t.primary, fontSize: 32, fontWeight: '800', fontVariant: ['tabular-nums'] }}>{d}</Text>
+                  </View>
+                </React.Fragment>
+              ))}
+            </View>
             <Text style={{ color: t.sub, textAlign: 'center', marginBottom: 16 }}>
               {`Expires in ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')} · works once`}
             </Text>
             <View style={{ flexDirection: 'row', gap: 10 }}>
-              <Pressable onPress={share} style={button}><Text style={{ color: t.onPrimary, fontWeight: '700', fontSize: 16 }}>{copied ? 'Copied ✓' : 'Share'}</Text></Pressable>
+              <Pressable onPress={share} {...fx({ grad: 'primary', press: true, glow: true })} style={button}><Text style={{ color: t.onPrimary, fontWeight: '700', fontSize: 16 }}>{copied ? 'Copied ✓' : 'Share'}</Text></Pressable>
               <Pressable onPress={async () => { await Clipboard.setStringAsync(mine.code); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
                 style={{ ...button, backgroundColor: t.chip }}>
                 <Text style={{ color: t.primary, fontWeight: '700', fontSize: 16 }}>Copy code</Text>
@@ -118,7 +128,7 @@ export function NewConversation({ navigation }: NativeStackScreenProps<RootStack
           style={{ backgroundColor: t.bg, color: t.text, borderRadius: radius.md, borderWidth: 1, borderColor: error ? t.warn : t.border, padding: 14, fontSize: 28, fontWeight: '700', letterSpacing: 8, textAlign: 'center' }}
         />
         {error ? <Text style={{ color: t.warn, marginTop: 10, fontSize: 14 }}>{error}</Text> : null}
-        <Pressable disabled={busy || entry.length !== 6} onPress={() => redeem(entry)} style={{ ...button, flex: undefined, marginTop: 12, opacity: entry.length === 6 ? 1 : 0.5 }}>
+        <Pressable disabled={busy || entry.length !== 6} onPress={() => redeem(entry)} {...fx({ grad: entry.length === 6 ? 'primary' : undefined, press: true })} style={{ ...button, flex: undefined, marginTop: 12, opacity: entry.length === 6 ? 1 : 0.5 }}>
           {busy ? <ActivityIndicator color={t.onPrimary} /> : <Text style={{ color: t.onPrimary, fontWeight: '700', fontSize: 16 }}>Connect</Text>}
         </Pressable>
       </View>

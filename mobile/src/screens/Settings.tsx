@@ -8,6 +8,8 @@ import { notificationPermission, notificationsSupported, requestNotifications } 
 import { LanguagePicker } from '../components/LanguagePicker';
 import { Option } from '../components/Option';
 import { langByCode } from '../languages';
+import { Avatar } from '../components/Avatar';
+import { fx } from '../ui/web';
 import { useApp } from '../store/app';
 import { radius, useTheme } from '../theme';
 import type { User } from '../types';
@@ -21,7 +23,7 @@ export function Settings() {
   const lang = langByCode(user.language)!;
 
   const save = (patch: Partial<User>) => updateSettings(patch).catch((e) => notify('Could not save', String(e.message)));
-  const H = ({ children }: { children: string }) => <Text style={{ color: t.sub, fontSize: 12, fontWeight: '700', marginTop: 24, marginBottom: 8 }}>{children}</Text>;
+  const H = ({ children }: { children: string }) => <Text style={{ color: t.sub, fontSize: 11.5, fontWeight: '800', letterSpacing: 1, marginTop: 28, marginBottom: 10 }}>{children}</Text>;
   const Row = ({ label, value, onChange }: { label: string; value: boolean; onChange: (v: boolean) => void }) => (
     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: t.card, borderRadius: radius.md, padding: 14, borderWidth: 1, borderColor: t.border }}>
       <Text style={{ color: t.text, fontSize: 16, flex: 1, paddingRight: 12 }}>{label}</Text>
@@ -31,6 +33,15 @@ export function Settings() {
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: t.screen }} contentContainerStyle={{ padding: 20, paddingBottom: 60 }}>
+      <View {...fx({ grad: 'soft' })} style={{ flexDirection: 'row', alignItems: 'center', gap: 14, padding: 18, borderRadius: radius.xl, backgroundColor: t.card, borderWidth: 1, borderColor: t.border }}>
+        <Avatar name={user.name} url={user.avatarUrl} size={60} />
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: t.text, fontSize: 20, fontWeight: '800' }}>{user.name}</Text>
+          <Text style={{ color: t.sub, fontSize: 13.5, marginTop: 2 }}>{user.email ?? `@${user.handle}`}</Text>
+          <Text style={{ color: t.primary, fontSize: 13, fontWeight: '700', marginTop: 6 }}>🌐 Reads in {lang.name}{lang.romanizedName && user.outputFormat !== 'native' ? ` · ${lang.romanizedName}` : ''}</Text>
+        </View>
+      </View>
+
       <H>MY LANGUAGE</H>
       <LanguagePicker value={user.language} onChange={(c) => save({ language: c, outputFormat: langByCode(c)?.romanizedName ? user.outputFormat : 'native' })} />
 

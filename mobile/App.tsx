@@ -12,6 +12,9 @@ import { NewConversation } from './src/screens/NewConversation';
 import { Onboarding } from './src/screens/Onboarding';
 import { Settings } from './src/screens/Settings';
 import { WelcomeBackdrop } from './src/components/WelcomeBackdrop';
+import { injectWebStyles } from './src/ui/web';
+
+injectWebStyles();
 import { useApp } from './src/store/app';
 import { useTheme } from './src/theme';
 
@@ -52,6 +55,8 @@ export default function App() {
         <NavigationContainer theme={navTheme}>
           <Stack.Navigator
             screenOptions={({ navigation }) => ({
+              headerShadowVisible: false,
+              headerTitleStyle: { fontWeight: '800', fontSize: 18 },
               // always offer a way back, even when the screen was opened directly (web refresh) and has no history
               headerLeft: () => (
                 <Pressable
